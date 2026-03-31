@@ -1,0 +1,438 @@
+"""
+进程管理服务层
+负责启动、停止、监控 Python 脚本进程
+"""
+import os
+import sys
+import psutil
+import signal
+import subprocess
+import asyncio
+import threading
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+from pathlib import Path
+import json
+
+from app.config_manager import ScriptConfigData, config_manager
+from app.database import get_db_context
+from app.models import ScriptConfig, ScriptHistory, SystemLog
+
+
+class ProcessInfo:
+    """进程信息"""
+    def __init__(self, pid: int, name: str, cmdline: List[str], 
+                 create_time: float, cpu_percent: float, memory_mb: float,
+                 status: str):
+        self.pid = pid
+        self.name = name
+        self.cmdline = cmdline
+        self.create_time = create_time
+        self.cpu_percent = cpu_percent
+        self.memory_mb = memory_mb
+        self.status = status
+
+    def to_dict(self) -> Dict:
+        return {
+            'pid': self.pid,
+            'name': self.name,
+            'cmdline': ' '.join(self.cmdline) if self.cmdline else '',
+            'create_time': datetime.fromtimestamp(self.create_time).isoformat() if self.create_time else None,
+            'cpu_percent': round(self.cpu_percent, 2),
+            'memory_mb': round(self.memory_mb, 2),
+            'status': self.status,
+        }
+
+
+class ProcessManager:
+    """进程管理器"""
+
+    # 当前运行的进程记录 {script_name: {'process': Popen, 'log_file': path}}
+    running_processes: Dict[str, Dict] = {}
+
+    def __init__(self):
+        self.self_pid = os.getpid()
+        self.log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+        os.makedirs(self.log_dir, exist_ok=True)
+
+    def get_python_processes(self) -> List[ProcessInfo]:
+        """获取所有正在运行的 Python 进程"""
+        processes = []
+        
+        # 获取配置文件中所有脚本
+        config_all_scripts_dict = config_manager.get_all_configs()
+        config_all_scripts = []
+        for k, v in config_all_scripts_dict.items():
+            config_all_scripts.append(v.to_dict().get("script_path"))
+        
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time', 
+                                          'cpu_percent', 'memory_info', 'status']):
+            try:
+                # 检查是否是 Python 进程
+                name = proc.info['name'].lower()
+                
+                if 'python' in name:
+                    cmdline = proc.info['cmdline'] or []
+                    
+                    # 统计配置文件中正在运行的进程
+                    for config_script_path in config_all_scripts:
+                        if config_script_path in cmdline:
+                    
+                            cpu = proc.cpu_percent(interval=0.1)
+                            memory = proc.info['memory_info'].rss / (1024 * 1024)  # MB
+                            
+                            process_info = ProcessInfo(
+                                pid=proc.info['pid'],
+                                name=proc.info['name'],
+                                cmdline=cmdline,
+                                create_time=proc.info['create_time'],
+                                cpu_percent=cpu,
+                                memory_mb=memory,
+                                status=proc.info['status']
+                            )
+                            processes.append(process_info)
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+        return processes
+
+    def get_process_by_pid(self, pid: int) -> Optional[ProcessInfo]:
+        """根据 PID 获取进程信息"""
+        try:
+            proc = psutil.Process(pid)
+            
+            # 检查是否是 Python 进程
+            name = proc.name().lower()
+            if 'python' not in name:
+                return None
+            
+            # 跳过自身
+            if pid == self.self_pid:
+                return None
+            
+            cmdline = proc.cmdline() or []
+            if any('uvicorn' in cmd or 'gunicorn' in cmd for cmd in cmdline):
+                return None
+            
+            cpu = proc.cpu_percent(interval=0.1)
+            memory = proc.memory_info().rss / (1024 * 1024)
+            
+            return ProcessInfo(
+                pid=pid,
+                name=proc.name(),
+                cmd=cmdline,
+                create_time=proc.create_time(),
+                cpu_percent=cpu,
+                memory_mb=memory,
+                status=proc.status()
+            )
+            
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return None
+
+    def kill_process(self, pid: int, force: bool = False) -> Tuple[bool, str]:
+        """
+        终止指定进程
+        :param pid: 进程ID
+        :param force: 是否强制终止（SIGKILL）
+        :return: (是否成功, 消息)
+        """
+        # 安全检查：不允许终止自身
+        if pid == self.self_pid:
+            return False, "不能终止 Web 管理服务进程"
+        
+        try:
+            proc = psutil.Process(pid)
+            
+            # 检查是否是 Python 进程
+            if 'python' not in proc.name().lower():
+                return False, "只能终止 Python 进程"
+            
+            # 检查是否是 uvicorn 进程
+            cmdline = proc.cmdline() or []
+            if any('uvicorn' in cmd or 'gunicorn' in cmd for cmd in cmdline):
+                return False, "不能终止 Web 服务相关进程"
+            
+            # 发送信号
+            if force:
+                proc.kill()  # SIGKILL
+                sig_name = "SIGKILL"
+            else:
+                proc.terminate()  # SIGTERM
+                sig_name = "SIGTERM"
+            
+            # 等待进程结束
+            try:
+                proc.wait(timeout=5)
+            except psutil.TimeoutExpired:
+                if not force:
+                    # 如果正常终止超时，强制终止
+                    proc.kill()
+                    proc.wait(timeout=3)
+            
+            # 记录日志
+            self._log_action('kill_process', f'PID:{pid}', f'使用 {sig_name} 终止进程')
+            
+            return True, f"进程 {pid} 已终止"
+            
+        except psutil.NoSuchProcess:
+            return False, f"进程 {pid} 不存在"
+        except psutil.AccessDenied:
+            return False, f"没有权限终止进程 {pid}"
+        except Exception as e:
+            return False, f"终止进程失败: {str(e)}"
+
+    def kill_multiple_processes(self, pids: List[int]) -> Dict[int, Tuple[bool, str]]:
+        """批量终止进程"""
+        results = {}
+        for pid in pids:
+            results[pid] = self.kill_process(pid)
+        return results
+
+    def start_script(self, script_path: str, script_name: str, 
+                     working_dir: str = None, env_vars: Dict = None,
+                     python_path: str = None, timeout: int = 3600) -> Tuple[bool, str, Optional[int]]:
+        """
+        启动脚本
+        :return: (是否成功, 消息, 进程ID)
+        """
+        # 检查脚本是否存在
+        if not os.path.isfile(script_path):
+            return False, f"脚本文件不存在: {script_path}", None
+        
+        # 检查是否已在运行
+        if script_name in self.running_processes:
+            proc_info = self.running_processes[script_name]
+            if proc_info.get('process') and proc_info['process'].poll() is None:
+                return False, f"脚本 {script_name} 已在运行中", None
+        
+        # 准备环境变量
+        env = os.environ.copy()
+        if env_vars:
+            env.update(env_vars)
+        
+        # 准备工作目录
+        cwd = working_dir or os.path.dirname(script_path)
+        
+        # 准备 Python 解释器
+        python = python_path or sys.executable
+        
+        # 准备日志文件
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_filename = f"{script_name}_{timestamp}.log"
+        log_file = os.path.join(self.log_dir, log_filename)
+        
+        try:
+            # 启动进程
+            with open(log_file, 'w', encoding='utf-8') as log_f:
+                process = subprocess.Popen(
+                    [python, script_path],
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    cwd=cwd,
+                    env=env,
+                    start_new_session=True  # 创建新的进程组
+                )
+            
+            # 记录运行信息
+            self.running_processes[script_name] = {
+                'process': process,
+                'log_file': log_file,
+                'start_time': datetime.now(),
+                'timeout': timeout
+            }
+            
+            # 创建历史记录
+            with get_db_context() as db:
+                history = ScriptHistory(
+                    script_name=script_name,
+                    script_path=script_path,
+                    pid=process.pid,
+                    status='running',
+                    log_file=log_file
+                )
+                db.add(history)
+                db.commit()
+                history_id = history.id
+            
+            # 更新配置状态
+            with get_db_context() as db:
+                config = db.query(ScriptConfig).filter(
+                    ScriptConfig.name == script_name
+                ).first()
+                if config:
+                    config.current_pid = process.pid
+                    config.status = 'running'
+                    config.last_run_time = datetime.now()
+                    db.commit()
+            
+            # 启动监控线程
+            self._start_monitor_thread(script_name, process, history_id)
+            
+            # 记录日志
+            self._log_action('start_script', script_name, f'启动脚本，PID: {process.pid}')
+            
+            return True, f"脚本 {script_name} 已启动，PID: {process.pid}", process.pid
+            
+        except Exception as e:
+            return False, f"启动脚本失败: {str(e)}", None
+
+    def stop_script(self, script_name: str) -> Tuple[bool, str]:
+        """停止由本系统启动的脚本"""
+        print(self.running_processes)
+        if script_name not in self.running_processes:
+            return False, f"脚本 {script_name} 未在运行中"
+        
+        proc_info = self.running_processes[script_name]
+        process = proc_info.get('process')
+        
+        if not process or process.poll() is not None:
+            # 进程已结束，清理记录
+            del self.running_processes[script_name]
+            return False, f"脚本 {script_name} 进程已结束"
+        
+        try:
+            # 获取进程组ID，终止整个进程组
+            pgid = os.getpgid(process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            
+            # 等待结束
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(pgid, signal.SIGKILL)
+                process.wait(timeout=3)
+            
+            del self.running_processes[script_name]
+            
+            # 记录日志
+            self._log_action('stop_script', script_name, '停止脚本')
+            
+            return True, f"脚本 {script_name} 已停止"
+            
+        except Exception as e:
+            return False, f"停止脚本失败: {str(e)}"
+
+    def get_script_log(self, script_name: str, lines: int = 100) -> Tuple[bool, str]:
+        """获取脚本日志"""
+        if script_name not in self.running_processes:
+            # 查询历史记录获取最新日志
+            with get_db_context() as db:
+                history = db.query(ScriptHistory).filter(
+                    ScriptHistory.script_name == script_name
+                ).order_by(ScriptHistory.start_time.desc()).first()
+                
+                if history and history.log_file:
+                    log_file = history.log_file
+                else:
+                    return False, f"未找到脚本 {script_name} 的日志"
+        else:
+            log_file = self.running_processes[script_name].get('log_file')
+        
+        if not log_file or not os.path.exists(log_file):
+            return False, f"日志文件不存在"
+        
+        try:
+            with open(log_file, 'r', encoding='utf-8') as f:
+                all_lines = f.readlines()
+                last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                return True, ''.join(last_lines)
+        except Exception as e:
+            return False, f"读取日志失败: {str(e)}"
+
+    def get_script_history(self, script_name: str, limit: int = 20) -> List[Dict]:
+        """获取脚本运行历史"""
+        with get_db_context() as db:
+            histories = db.query(ScriptHistory).filter(
+                ScriptHistory.script_name == script_name
+            ).order_by(ScriptHistory.start_time.desc()).limit(limit).all()
+            
+            return [{
+                'id': h.id,
+                'script_name': h.script_name,
+                'pid': h.pid,
+                'start_time': h.start_time.isoformat() if h.start_time else None,
+                'end_time': h.end_time.isoformat() if h.end_time else None,
+                'duration': h.duration,
+                'exit_code': h.exit_code,
+                'status': h.status,
+                'retry_count': h.retry_count,
+                'error_message': h.error_message,
+            } for h in histories]
+
+    def _start_monitor_thread(self, script_name: str, process: subprocess.Popen, history_id: int):
+        """启动进程监控线程"""
+        def monitor():
+            try:
+                # 等待进程结束
+                process.wait()
+                
+                end_time = datetime.now()
+                exit_code = process.returncode
+                
+                # 更新历史记录
+                with get_db_context() as db:
+                    history = db.query(ScriptHistory).filter(
+                        ScriptHistory.id == history_id
+                    ).first()
+                    
+                    if history:
+                        history.end_time = end_time
+                        history.exit_code = exit_code
+                        history.duration = int((end_time - history.start_time).total_seconds())
+                        history.status = 'completed' if exit_code == 0 else 'failed'
+                        
+                        # 读取错误信息
+                        if exit_code != 0 and history.log_file:
+                            try:
+                                with open(history.log_file, 'r', encoding='utf-8') as f:
+                                    content = f.read()
+                                    # 取最后 500 字符作为错误信息
+                                    history.error_message = content[-500:] if len(content) > 500 else content
+                            except:
+                                pass
+                        
+                        db.commit()
+                
+                # 更新配置状态
+                with get_db_context() as db:
+                    config = db.query(ScriptConfig).filter(
+                        ScriptConfig.name == script_name
+                    ).first()
+                    if config:
+                        config.current_pid = None
+                        config.status = 'stopped'
+                        db.commit()
+                
+                # 清理运行记录
+                if script_name in self.running_processes:
+                    del self.running_processes[script_name]
+                
+            except Exception as e:
+                print(f"监控线程异常: {e}")
+        
+        thread = threading.Thread(target=monitor, daemon=True)
+        thread.start()
+
+    def _log_action(self, action: str, target: str, message: str, level: str = 'INFO'):
+        """记录系统日志"""
+        try:
+            with get_db_context() as db:
+                log = SystemLog(
+                    level=level,
+                    module='process_manager',
+                    action=action,
+                    target=target,
+                    message=message
+                )
+                db.add(log)
+                db.commit()
+        except Exception as e:
+            print(f"记录日志失败: {e}")
+
+
+# 全局进程管理器实例
+process_manager = ProcessManager()
+if __name__ == "__main__":
+    print(process_manager.get_python_processes())

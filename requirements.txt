@@ -1,0 +1,8 @@
+fastapi==0.115.6                # Web 框架
+uvicorn[standard]==0.34.0       # ASGI 服务器（含性能优化）
+celery[redis]==5.4.0            # 分布式任务队列（自动安装 redis 依赖）
+redis==5.2.1                    # Redis 客户端（Celery 消息代理和结果后端）
+psutil==6.1.1                   # 进程管理
+pyyaml==6.0.2                   # YAML 配置文件解析
+sqlalchemy==2.0.36              # ORM（用于历史记录持久化）
+python-dotenv==1.0.1            # 环境变量管理

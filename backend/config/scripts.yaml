@@ -1,0 +1,10 @@
+scripts:
+- auto_start: false
+  description: 这是一个示例脚本配置
+  enabled: true
+  max_retries: 3
+  name: example_script
+  retry_delay: 60
+  schedule_type: manual
+  script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply.py
+  timeout: 3600
