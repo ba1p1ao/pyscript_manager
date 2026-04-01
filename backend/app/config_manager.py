@@ -119,8 +119,6 @@ class ConfigManager:
 
     def get_all_configs(self) -> Dict[str, ScriptConfigData]:
         """获取所有配置"""
-        self.configs.clear()
-        self._load_config()
         return self.configs
 
     def get_config(self, name: str) -> Optional[ScriptConfigData]:

@@ -319,15 +319,15 @@ async def reload_script_configs():
     
     # 同步到数据库
     yaml_configs = config_manager.get_all_configs()
-    
+
     with get_db_context() as db:
         # 获取数据库中的所有配置
         db_configs = db.query(ScriptConfig).all()
-        db_names = {c.name for c in db_configs}
+        db_names = {c.name: c for c in db_configs}
         
         # 添加新配置
         for name, yaml_config in yaml_configs.items():
-            if name not in db_names:
+            if not db_names.get(name):
                 new_config = ScriptConfig(
                     name=yaml_config.name,
                     script_path=yaml_config.script_path,
@@ -346,7 +346,21 @@ async def reload_script_configs():
                     status='stopped'
                 )
                 db.add(new_config)
-        
+            else:
+                # print(yaml_config)
+                old_config = db_names[name]
+                for key, value in yaml_config.to_dict().items():
+                    if key == "name":
+                        continue
+                    elif key == 'env_vars' and value:
+                        setattr(old_config, key, str(value))
+                    elif hasattr(old_config, key):
+                        setattr(old_config, key, value)
+                        
+        for db_config in db_configs:
+            if not yaml_configs.get(db_config.name):
+                db.delete(db_config)
+                 
         db.commit()
     
     return {

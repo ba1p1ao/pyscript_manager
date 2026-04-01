@@ -8,3 +8,13 @@ scripts:
   schedule_type: manual
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply.py
   timeout: 3600
+- auto_start: false
+  description: 每一分钟执行一次
+  enabled: true
+  max_retries: 2
+  name: example_script2
+  retry_delay: 300
+  schedule: '*/1 * * * *'
+  schedule_type: cron
+  script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply2.py
+  timeout: 7200

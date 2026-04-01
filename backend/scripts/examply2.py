@@ -14,10 +14,10 @@ def main():
     logger.info("脚本启动...")
     
     count = 0
-    while True:
+    for i in range(10):
         count += 1
-        logger.info(f"正在运行... 第 {count} 次")
-        time.sleep(10)
+    
+    logger.info(f"{count} 次")
 
 
 if __name__ == '__main__':
