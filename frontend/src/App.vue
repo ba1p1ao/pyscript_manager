@@ -376,7 +376,7 @@ onMounted(() => {
   timer = setInterval(updateTime, 1000)
   
   loadStats()
-  statsTimer = setInterval(loadStats, 10000)
+  statsTimer = setInterval(loadStats, 70000)
 })
 
 onUnmounted(() => {

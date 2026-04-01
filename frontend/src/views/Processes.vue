@@ -163,7 +163,7 @@ const confirmKillSelected = async () => {
 
 onMounted(() => {
   loadProcesses()
-  refreshTimer = setInterval(loadProcesses, 5000)
+  refreshTimer = setInterval(loadProcesses, 65000)
 })
 
 onUnmounted(() => {

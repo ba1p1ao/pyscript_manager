@@ -159,7 +159,7 @@ const loadData = async () => {
 onMounted(() => {
   loadData()
   // 定时刷新
-  refreshTimer = setInterval(loadData, 10000)
+  refreshTimer = setInterval(loadData, 70000)
 })
 
 onUnmounted(() => {
