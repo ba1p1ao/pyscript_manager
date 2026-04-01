@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated } from 'vue'
 import { statsApi, historyApi } from '@/api'
 import dayjs from 'dayjs'
 
@@ -139,6 +139,7 @@ const getStatusType = (status) => {
 }
 
 const loadData = async () => {
+  loading.value = true
   try {
     const [statsRes, historyRes] = await Promise.all([
       statsApi.get(),
@@ -153,6 +154,8 @@ const loadData = async () => {
     }
   } catch (e) {
     console.error('加载数据失败:', e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -160,6 +163,11 @@ onMounted(() => {
   loadData()
   // 定时刷新
   refreshTimer = setInterval(loadData, 70000)
+})
+
+// 当组件被 keep-alive 缓存后重新激活时，刷新数据
+onActivated(() => {
+  loadData()
 })
 
 onUnmounted(() => {
