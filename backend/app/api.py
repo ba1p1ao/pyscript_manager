@@ -433,7 +433,7 @@ async def get_script_log(script_name: str, lines: int = Query(100, ge=1, le=1000
     - **script_name**: 脚本名称
     - **lines**: 返回的日志行数（默认 100，最大 1000）
     """
-    success, content = process_manager.get_script_log(script_name, lines)
+    success, content = await process_manager.get_script_log(script_name, lines)
     
     if not success:
         raise HTTPException(status_code=404, detail=content)

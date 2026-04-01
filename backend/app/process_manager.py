@@ -317,7 +317,7 @@ class ProcessManager:
         except Exception as e:
             return False, f"停止脚本失败: {str(e)}"
 
-    def get_script_log(self, script_name: str, lines: int = 100) -> Tuple[bool, str]:
+    async def get_script_log(self, script_name: str, lines: int = 100) -> Tuple[bool, str]:
         """获取脚本日志"""
         if script_name not in self.running_processes:
             # 查询历史记录获取最新日志
@@ -337,10 +337,14 @@ class ProcessManager:
             return False, f"日志文件不存在"
         
         try:
-            with open(log_file, 'r', encoding='utf-8') as f:
-                all_lines = f.readlines()
+            # 采用异步io的方式
+            async with aiofiles.open(log_file, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                all_lines = content.splitlines(keepends=True)
                 last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                
                 return True, ''.join(last_lines)
+    
         except Exception as e:
             return False, f"读取日志失败: {str(e)}"
 
