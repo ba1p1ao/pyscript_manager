@@ -6,3 +6,4 @@ psutil==6.1.1                   # 进程管理
 pyyaml==6.0.2                   # YAML 配置文件解析
 sqlalchemy==2.0.36              # ORM（用于历史记录持久化）
 python-dotenv==1.0.1            # 环境变量管理
+aiofiles==24.1.0                # 异步文件 IO
