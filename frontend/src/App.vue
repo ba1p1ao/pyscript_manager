@@ -42,7 +42,7 @@
           :default-active="currentRoute"
           :collapse="isCollapse"
           :collapse-transition="false"
-          :unique-opened="true"
+          :unique-opened="false"
           router
           class="app-menu"
         >
