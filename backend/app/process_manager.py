@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 import json
+import aiofiles
 
 from app.config_manager import ScriptConfigData, config_manager
 from app.database import get_db_context
@@ -224,16 +225,18 @@ class ProcessManager:
         log_file = os.path.join(self.log_dir, log_filename)
         
         try:
-            # 启动进程
-            with open(log_file, 'w', encoding='utf-8') as log_f:
-                process = subprocess.Popen(
-                    [python, script_path],
-                    stdout=log_f,
-                    stderr=subprocess.STDOUT,
-                    cwd=cwd,
-                    env=env,
-                    start_new_session=True  # 创建新的进程组
-                )
+            # 启动进程（使用 PIPE 捕获输出，以便异步写入日志）
+            process = subprocess.Popen(
+                [python, script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=cwd,
+                env=env,
+                start_new_session=True  # 创建新的进程组
+            )
+            
+            # 启动异步日志写入任务
+            self._start_async_log_writer(process, log_file)
             
             # 记录运行信息
             self.running_processes[script_name] = {
@@ -360,6 +363,47 @@ class ProcessManager:
                 'retry_count': h.retry_count,
                 'error_message': h.error_message,
             } for h in histories]
+
+    def _start_async_log_writer(self, process: subprocess.Popen, log_file: str):
+        """
+        启动异步日志写入任务
+        使用后台线程运行异步事件循环，持续从进程管道读取输出并异步写入文件
+        """
+        def run_async_writer():
+            """在线程中运行异步日志写入"""
+            asyncio.run(self._async_log_writer(process, log_file))
+        
+        thread = threading.Thread(target=run_async_writer, daemon=True)
+        thread.start()
+
+    async def _async_log_writer(self, process: subprocess.Popen, log_file: str):
+        """
+        异步日志写入协程
+        从进程 stdout 管道读取数据并异步写入文件
+        """
+        try:
+            async with aiofiles.open(log_file, 'w', encoding='utf-8') as f:
+                # 使用异步方式读取管道
+                # 由于 process.stdout 是同步文件对象，我们需要在线程池中执行读取
+                loop = asyncio.get_event_loop()
+                
+                while True:
+                    # 在线程池中执行同步读取，避免阻塞事件循环
+                    line = await loop.run_in_executor(None, process.stdout.readline)
+                    
+                    if not line:
+                        # 检查进程是否已结束
+                        if process.poll() is not None:
+                            break
+                        continue
+                    
+                    # 异步写入文件
+                    await f.write(line.decode('utf-8', errors='replace'))
+                    # 定期刷新，确保日志实时可见
+                    await f.flush()
+                    
+        except Exception as e:
+            print(f"异步日志写入异常: {e}")
 
     def _start_monitor_thread(self, script_name: str, process: subprocess.Popen, history_id: int):
         """启动进程监控线程"""
