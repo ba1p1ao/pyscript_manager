@@ -5,24 +5,36 @@
       <!-- Logo -->
       <div class="logo" @click="$router.push('/')">
         <el-icon :size="28" color="#409eff"><Promotion /></el-icon>
-        <transition name="fade">
-          <span v-show="!isCollapse" class="logo-text">脚本管理器</span>
-        </transition>
+        <span v-show="!isCollapse" class="logo-text">脚本管理器</span>
+      </div>
+      
+      <!-- 快捷操作按钮 -->
+      <div class="quick-actions-top" :class="{ 'is-collapse': isCollapse }">
+        <el-tooltip content="刷新数据" placement="right" :disabled="!isCollapse">
+          <el-button type="primary" @click="refreshAll" class="action-btn">
+            <el-icon><Refresh /></el-icon>
+            <span class="btn-text">刷新数据</span>
+          </el-button>
+        </el-tooltip>
+        <el-tooltip content="重载配置" placement="right" :disabled="!isCollapse">
+          <el-button type="success" @click="reloadConfig" class="action-btn">
+            <el-icon><Upload /></el-icon>
+            <span class="btn-text">重载配置</span>
+          </el-button>
+        </el-tooltip>
       </div>
       
       <!-- 系统状态 -->
-      <transition name="slide">
-        <div v-show="!isCollapse" class="system-status">
-          <div class="status-item">
-            <el-icon class="status-icon running"><Loading /></el-icon>
-            <span class="status-text">运行中: {{ stats.running_scripts }}</span>
-          </div>
-          <div class="status-item">
-            <el-icon class="status-icon process"><Cpu /></el-icon>
-            <span class="status-text">进程: {{ stats.python_processes }}</span>
-          </div>
+      <div v-show="!isCollapse" class="system-status">
+        <div class="status-item">
+          <el-icon class="status-icon running"><Loading /></el-icon>
+          <span class="status-text">运行中: {{ stats.running_scripts }}</span>
         </div>
-      </transition>
+        <div class="status-item">
+          <el-icon class="status-icon process"><Cpu /></el-icon>
+          <span class="status-text">进程: {{ stats.python_processes }}</span>
+        </div>
+      </div>
       
       <!-- 菜单 -->
       <el-scrollbar class="menu-scrollbar">
@@ -84,30 +96,12 @@
       
       <!-- 底部操作区 -->
       <div class="aside-footer">
-        <!-- 快捷操作 -->
-        <transition name="slide">
-          <div v-show="!isCollapse" class="quick-actions">
-            <el-tooltip content="刷新数据" placement="right">
-              <el-button circle size="small" @click="refreshAll">
-                <el-icon><Refresh /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip content="重载配置" placement="right">
-              <el-button circle size="small" @click="reloadConfig">
-                <el-icon><Upload /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </div>
-        </transition>
-        
         <!-- 折叠按钮 -->
         <div class="collapse-btn" @click="toggleCollapse">
           <el-icon>
             <component :is="isCollapse ? 'Expand' : 'Fold'" />
           </el-icon>
-          <transition name="fade">
-            <span v-show="!isCollapse" class="collapse-text">收起菜单</span>
-          </transition>
+          <span v-show="!isCollapse" class="collapse-text">收起菜单</span>
         </div>
       </div>
     </el-aside>
@@ -404,8 +398,8 @@ onUnmounted(() => {
   height: 60px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
+  padding-left: 18px;
+  gap: 30px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   transition: background-color 0.3s;
@@ -420,6 +414,7 @@ onUnmounted(() => {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 
 /* 系统状态 */
@@ -431,12 +426,13 @@ onUnmounted(() => {
 .status-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  gap: 10px;
+  padding: 8px 0;
+  white-space: nowrap;
 }
 
 .status-icon {
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .status-icon.running {
@@ -449,8 +445,8 @@ onUnmounted(() => {
 }
 
 .status-text {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
 }
 
 /* 菜单样式 */
@@ -615,22 +611,44 @@ onUnmounted(() => {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.quick-actions {
-  padding: 12px;
+/* 顶部快捷操作按钮 */
+.quick-actions-top {
+  padding: 12px 16px;
   display: flex;
-  justify-content: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
 }
 
-.quick-actions .el-button {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: transparent;
-  color: rgba(255, 255, 255, 0.7);
+.quick-actions-top .action-btn {
+  width: 100%;
+  height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-left: 0 !important;
+  overflow: hidden;
+  transition: width 0.3s ease, padding 0.3s ease, border-radius 0.3s ease;
 }
 
-.quick-actions .el-button:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
+.quick-actions-top.is-collapse .action-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.quick-actions-top .btn-text {
+  white-space: nowrap;
+  margin-left: 6px;
+}
+
+.quick-actions-top .action-btn :deep(.el-icon) {
+  flex-shrink: 0;
+}
+
+.quick-actions-top.is-collapse .btn-text {
+  display: none;
 }
 
 .collapse-btn {
