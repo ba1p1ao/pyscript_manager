@@ -1,5 +1,7 @@
 # Python 脚本管理器 - 脚本配置文件
 # 在此文件中定义要管理的 Python 脚本
+ 
+# 复制该文件, 重命名script.yaml
 
 scripts:
   # 示例 1: 手动运行的脚本
