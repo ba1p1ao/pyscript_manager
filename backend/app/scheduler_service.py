@@ -269,6 +269,7 @@ class SchedulerService:
                 env_vars = eval(config.env_vars) if config.env_vars else None
                 python_path = config.python_path
                 timeout = config.timeout
+                schedule_type = config.schedule_type
             
             # 调用进程管理器启动脚本
             success, message, pid = process_manager.start_scheduled_script(
@@ -278,7 +279,7 @@ class SchedulerService:
                 env_vars=env_vars,
                 python_path=python_path,
                 timeout=timeout,
-                schedule_type='cron'  # 或从配置获取
+                schedule_type=schedule_type  # 或从配置获取
             )
             
             if success:
