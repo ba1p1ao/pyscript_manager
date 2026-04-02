@@ -1,73 +1,147 @@
 <template>
   <div class="processes">
-    <!-- 工具栏 -->
-    <el-card shadow="never" class="toolbar-card">
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <el-button type="primary" @click="loadProcesses">
+    <!-- 定时任务 -->
+    <el-card shadow="never" class="section-card">
+      <template #header>
+        <div class="section-header">
+          <div class="section-title">
+            <el-icon><Clock /></el-icon>
+            <span>定时任务</span>
+            <el-tag type="info" size="small">{{ scheduledTasks.length }} 个</el-tag>
+          </div>
+          <el-button type="primary" size="small" @click="loadScheduledTasks">
             <el-icon><Refresh /></el-icon> 刷新
           </el-button>
-          <span class="process-count">共 {{ processes.length }} 个 Python 进程</span>
         </div>
-        <div class="toolbar-right">
-          <el-button 
-            type="danger" 
-            :disabled="selectedPids.length === 0"
-            @click="showKillConfirm"
-          >
-            <el-icon><SwitchButton /></el-icon>
-            终止选中 ({{ selectedPids.length }})
-          </el-button>
-        </div>
-      </div>
+      </template>
+      
+      <el-table :data="scheduledTasks" v-loading="scheduledLoading" stripe size="small">
+        <el-table-column prop="name" label="名称" min-width="150">
+          <template #default="{ row }">
+            <el-link type="primary" @click="$router.push(`/scripts/${row.name}`)">
+              {{ row.name }}
+            </el-link>
+          </template>
+        </el-table-column>
+        <el-table-column prop="schedule_type" label="类型" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.schedule_type === 'cron' ? 'primary' : 'warning'" size="small">
+              {{ row.schedule_type }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="schedule" label="调度配置" min-width="140">
+          <template #default="{ row }">
+            <span v-if="row.schedule_type === 'cron'">{{ row.schedule }}</span>
+            <span v-else>每 {{ row.interval_seconds }} 秒</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="next_run_time" label="下次执行" width="160">
+          <template #default="{ row }">
+            <span v-if="row.enabled && row.next_run_time">{{ formatTime(row.next_run_time) }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="enabled" label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+              {{ row.enabled ? '运行中' : '已停止' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button 
+              v-if="!row.enabled"
+              type="success" 
+              size="small"
+              @click="startScheduled(row.name)"
+            >
+              启动
+            </el-button>
+            <el-button 
+              v-else
+              type="warning" 
+              size="small"
+              @click="stopScheduled(row.name)"
+            >
+              停止
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
     
-    <!-- 进程列表 -->
-    <el-card shadow="never" class="table-card">
+    <!-- Python 进程 -->
+    <el-card shadow="never" class="section-card">
+      <template #header>
+        <div class="section-header">
+          <div class="section-title">
+            <el-icon><Monitor /></el-icon>
+            <span>Python 进程</span>
+            <el-tag type="info" size="small">{{ processes.length }} 个</el-tag>
+          </div>
+          <div class="section-actions">
+            <el-button type="primary" size="small" @click="loadProcesses">
+              <el-icon><Refresh /></el-icon> 刷新
+            </el-button>
+            <el-button 
+              type="danger" 
+              size="small"
+              :disabled="selectedPids.length === 0"
+              @click="showKillConfirm"
+            >
+              终止选中 ({{ selectedPids.length }})
+            </el-button>
+          </div>
+        </div>
+      </template>
+      
       <el-table 
         :data="processes" 
-        v-loading="loading"
+        v-loading="processLoading"
         @selection-change="handleSelectionChange"
         stripe
+        size="small"
       >
         <el-table-column type="selection" width="50" />
         <el-table-column prop="pid" label="PID" width="100">
           <template #default="{ row }">
-            <el-tag effect="plain">{{ row.pid }}</el-tag>
+            <el-tag effect="plain" size="small">{{ row.pid }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="cmdline" label="命令行" min-width="300" show-overflow-tooltip />
-        <el-table-column prop="cpu_percent" label="CPU" width="150">
+        <el-table-column prop="cpu_percent" label="CPU" width="120">
           <template #default="{ row }">
             <div class="cpu-cell">
               <span>{{ row.cpu_percent?.toFixed(1) }}%</span>
               <el-progress 
                 :percentage="Math.min(row.cpu_percent || 0, 100)" 
-                :stroke-width="6"
+                :stroke-width="4"
                 :show-text="false"
                 :color="getCpuColor(row.cpu_percent)"
               />
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="memory_mb" label="内存 (MB)" width="120">
+        <el-table-column prop="memory_mb" label="内存 (MB)" width="100">
           <template #default="{ row }">
             {{ row.memory_mb?.toFixed(1) }}
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column prop="status" label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="row.status === 'running' ? 'success' : 'info'" size="small">
               {{ row.status }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="create_time" label="启动时间" width="180">
+        <el-table-column prop="create_time" label="启动时间" width="160">
           <template #default="{ row }">
             {{ formatTime(row.create_time) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <el-popconfirm
               title="确定要终止该进程吗？"
@@ -97,12 +171,14 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { processApi } from '@/api'
+import { processApi, scheduledApi, scriptApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 
-const loading = ref(false)
+const processLoading = ref(false)
+const scheduledLoading = ref(false)
 const processes = ref([])
+const scheduledTasks = ref([])
 const selectedPids = ref([])
 const killDialogVisible = ref(false)
 let refreshTimer = null
@@ -118,7 +194,7 @@ const getCpuColor = (cpu) => {
 }
 
 const loadProcesses = async () => {
-  loading.value = true
+  processLoading.value = true
   try {
     const res = await processApi.list()
     if (res.success) {
@@ -127,7 +203,41 @@ const loadProcesses = async () => {
   } catch (e) {
     console.error('加载进程失败:', e)
   } finally {
-    loading.value = false
+    processLoading.value = false
+  }
+}
+
+const loadScheduledTasks = async () => {
+  scheduledLoading.value = true
+  try {
+    const res = await scheduledApi.list()
+    if (res.success) {
+      scheduledTasks.value = res.data
+    }
+  } catch (e) {
+    console.error('加载定时任务失败:', e)
+  } finally {
+    scheduledLoading.value = false
+  }
+}
+
+const startScheduled = async (name) => {
+  try {
+    const res = await scriptApi.start(name)
+    ElMessage.success(res.message)
+    await loadScheduledTasks()
+  } catch (e) {
+    console.error('启动失败:', e)
+  }
+}
+
+const stopScheduled = async (name) => {
+  try {
+    const res = await scriptApi.stop(name)
+    ElMessage.success(res.message)
+    await loadScheduledTasks()
+  } catch (e) {
+    console.error('停止失败:', e)
   }
 }
 
@@ -161,9 +271,14 @@ const confirmKillSelected = async () => {
   }
 }
 
-onMounted(() => {
+const loadAll = () => {
   loadProcesses()
-  refreshTimer = setInterval(loadProcesses, 65000)
+  loadScheduledTasks()
+}
+
+onMounted(() => {
+  loadAll()
+  refreshTimer = setInterval(loadAll, 60000)
 })
 
 onUnmounted(() => {
@@ -178,34 +293,35 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.toolbar-card {
-  padding: 0;
+.section-card {
+  flex: 1;
 }
 
-.toolbar {
+.section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.toolbar-left {
+.section-title {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
+  font-weight: 500;
 }
 
-.process-count {
-  color: #909399;
-  font-size: 14px;
-}
-
-.table-card {
-  flex: 1;
+.section-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .cpu-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+
+.text-muted {
+  color: #909399;
 }
 </style>

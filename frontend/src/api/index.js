@@ -52,4 +52,9 @@ export const statsApi = {
   get: () => api.get('/stats')
 }
 
+// 定时任务 API
+export const scheduledApi = {
+  list: () => api.get('/scheduled')
+}
+
 export default api

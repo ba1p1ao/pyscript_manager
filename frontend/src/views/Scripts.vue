@@ -30,32 +30,28 @@
     </el-card>
     
     <!-- 统计信息 -->
-    <el-row :gutter="16" class="stat-row">
-      <el-col :span="6">
-        <div class="stat-card">
-          <div class="stat-value">{{ filteredScripts.length }}</div>
-          <div class="stat-label">显示脚本</div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card running">
-          <div class="stat-value">{{ runningCount }}</div>
-          <div class="stat-label">运行中</div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card stopped">
-          <div class="stat-value">{{ stoppedCount }}</div>
-          <div class="stat-label">已停止</div>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card enabled">
-          <div class="stat-value">{{ enabledCount }}</div>
-          <div class="stat-label">已启用</div>
-        </div>
-      </el-col>
-    </el-row>
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-value">{{ filteredScripts.length }}</div>
+        <div class="stat-label">显示脚本</div>
+      </div>
+      <div class="stat-card running">
+        <div class="stat-value">{{ runningCount }}</div>
+        <div class="stat-label">运行中</div>
+      </div>
+      <div class="stat-card stopped">
+        <div class="stat-value">{{ stoppedCount }}</div>
+        <div class="stat-label">已停止</div>
+      </div>
+      <div class="stat-card scheduled">
+        <div class="stat-value">{{ scheduledTotal }}</div>
+        <div class="stat-label">定时任务</div>
+      </div>
+      <div class="stat-card enabled">
+        <div class="stat-value">{{ enabledCount }}</div>
+        <div class="stat-label">已启用</div>
+      </div>
+    </div>
     
     <!-- 脚本列表 -->
     <el-card shadow="never" class="table-card">
@@ -276,6 +272,7 @@ import dayjs from 'dayjs'
 const route = useRoute()
 const loading = ref(false)
 const scripts = ref([])
+const scheduledTotal = ref(0)
 const searchKeyword = ref('')
 const dialogVisible = ref(false)
 const isEditing = ref(false)
@@ -294,7 +291,10 @@ const filteredScripts = computed(() => {
 })
 
 const runningCount = computed(() => scripts.value.filter(s => s.status === 'running').length)
-const stoppedCount = computed(() => scripts.value.filter(s => s.status === 'stopped').length)
+// 已停止：只统计 manual 类型且 status 为 stopped 的脚本，排除定时任务
+const stoppedCount = computed(() => scripts.value.filter(s => 
+  s.schedule_type === 'manual' && s.status === 'stopped'
+).length)
 const enabledCount = computed(() => scripts.value.filter(s => s.enabled).length)
 
 const form = ref({
@@ -356,6 +356,7 @@ const loadScripts = async () => {
     const res = await scriptApi.list()
     if (res.success) {
       scripts.value = res.data
+      scheduledTotal.value = res.scheduled_total || 0
     }
   } catch (e) {
     console.error('加载脚本失败:', e)
@@ -527,10 +528,12 @@ onMounted(() => {
 
 /* 统计卡片 */
 .stat-row {
-  margin-bottom: 0;
+  display: flex;
+  gap: 16px;
 }
 
 .stat-card {
+  flex: 1;
   background: #fff;
   border-radius: 8px;
   padding: 20px;
@@ -544,6 +547,10 @@ onMounted(() => {
 
 .stat-card.stopped {
   border-left-color: #909399;
+}
+
+.stat-card.scheduled {
+  border-left-color: #9b59b6;
 }
 
 .stat-card.enabled {
@@ -562,6 +569,10 @@ onMounted(() => {
 
 .stat-card.stopped .stat-value {
   color: #909399;
+}
+
+.stat-card.scheduled .stat-value {
+  color: #9b59b6;
 }
 
 .stat-card.enabled .stat-value {

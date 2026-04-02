@@ -197,10 +197,14 @@ async def list_script_configs():
                     'next_run_time': None,
                 })
         
+        # 统计定时任务总数
+        scheduled_total = sum(1 for s in result if s['schedule_type'] in ['cron', 'interval'])
+        
         return {
             "success": True,
             "data": result,
-            "count": len(result)
+            "count": len(result),
+            "scheduled_total": scheduled_total
         }
 
 
@@ -659,6 +663,16 @@ async def get_statistics():
         running_scripts_count = db.query(ScriptConfig).filter(
             ScriptConfig.status == 'running'
         ).count()
+        
+        # 定时任务统计
+        scheduled_total = db.query(ScriptConfig).filter(
+            ScriptConfig.schedule_type.in_(['cron', 'interval'])
+        ).count()
+        scheduled_active = db.query(ScriptConfig).filter(
+            ScriptConfig.schedule_type.in_(['cron', 'interval']),
+            ScriptConfig.enabled == True
+        ).count()
+        
         today_start_count = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         today_runs_count = db.query(ScriptHistory).filter(
             ScriptHistory.start_time >= today_start_count
@@ -677,7 +691,53 @@ async def get_statistics():
             "total_scripts": total_scripts_count,
             "running_scripts": running_scripts_count,
             "python_processes": len(python_processes),
+            "scheduled_total": scheduled_total,
+            "scheduled_active": scheduled_active,
             "today_runs": today_runs_count,
             "today_failed": today_failed_count,
         }
     }
+
+
+# ============== 定时任务 API ==============
+
+@router.get("/api/scheduled")
+async def list_scheduled_tasks():
+    """
+    获取所有定时任务列表
+    
+    返回所有 cron 和 interval 类型的脚本及其调度状态。
+    """
+    with get_db_context() as db:
+        scripts = db.query(ScriptConfig).filter(
+            ScriptConfig.schedule_type.in_(['cron', 'interval'])
+        ).all()
+        
+        # 获取调度器中的任务状态
+        scheduler_jobs = scheduler_service.get_all_jobs()
+        job_map = {j['id']: j for j in scheduler_jobs}
+        
+        result = []
+        for script in scripts:
+            job_id = f"script_{script.name}"
+            job_info = job_map.get(job_id)
+            
+            result.append({
+                'id': script.id,
+                'name': script.name,
+                'script_path': script.script_path,
+                'description': script.description,
+                'schedule_type': script.schedule_type,
+                'schedule': script.schedule,
+                'interval_seconds': script.interval_seconds,
+                'enabled': script.enabled,
+                'status': script.status,
+                'next_run_time': job_info['next_run_time'] if job_info and job_info.get('next_run_time') else None,
+                'last_run_time': script.last_run_time.isoformat() if script.last_run_time else None,
+            })
+        
+        return {
+            "success": True,
+            "data": result,
+            "count": len(result)
+        }

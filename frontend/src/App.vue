@@ -31,6 +31,10 @@
           <span class="status-text">运行中: {{ stats.running_scripts }}</span>
         </div>
         <div class="status-item">
+          <el-icon class="status-icon scheduled"><Clock /></el-icon>
+          <span class="status-text">定时任务: {{ stats.scheduled_active }}/{{ stats.scheduled_total }}</span>
+        </div>
+        <div class="status-item">
           <el-icon class="status-icon process"><Cpu /></el-icon>
           <span class="status-text">进程: {{ stats.python_processes }}</span>
         </div>
@@ -216,7 +220,9 @@ const searchKeyword = ref('')
 const stats = ref({
   total_scripts: 0,
   running_scripts: 0,
-  python_processes: 0
+  python_processes: 0,
+  scheduled_total: 0,
+  scheduled_active: 0
 })
 
 // 标签页导航

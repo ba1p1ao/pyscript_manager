@@ -33,6 +33,20 @@
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-content">
+            <div class="stat-icon scheduled">
+              <el-icon :size="32"><Clock /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.scheduled_active }}/{{ stats.scheduled_total }}</div>
+              <div class="stat-label">定时任务</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-content">
             <div class="stat-icon warning">
               <el-icon :size="32"><Monitor /></el-icon>
             </div>
@@ -43,9 +57,26 @@
           </div>
         </el-card>
       </el-col>
+    </el-row>
+    
+    <!-- 今日统计 -->
+    <el-row :gutter="20" class="stat-cards">
+      <el-col :span="12">
+        <el-card shadow="hover" class="stat-card today-card">
+          <div class="stat-content">
+            <div class="stat-icon info">
+              <el-icon :size="32"><TrendCharts /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.today_runs }}</div>
+              <div class="stat-label">今日运行</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
       
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
+      <el-col :span="12">
+        <el-card shadow="hover" class="stat-card today-card">
           <div class="stat-content">
             <div class="stat-icon danger">
               <el-icon :size="32"><CircleClose /></el-icon>
@@ -118,6 +149,8 @@ const stats = ref({
   total_scripts: 0,
   running_scripts: 0,
   python_processes: 0,
+  scheduled_total: 0,
+  scheduled_active: 0,
   today_runs: 0,
   today_failed: 0
 })
@@ -210,6 +243,12 @@ onUnmounted(() => {
 .stat-icon.success { background: linear-gradient(135deg, #67c23a, #85ce61); }
 .stat-icon.warning { background: linear-gradient(135deg, #e6a23c, #f0c78a); }
 .stat-icon.danger { background: linear-gradient(135deg, #f56c6c, #fab6b6); }
+.stat-icon.scheduled { background: linear-gradient(135deg, #9b59b6, #c39bd3); }
+.stat-icon.info { background: linear-gradient(135deg, #3498db, #85c1e9); }
+
+.today-card {
+  margin-top: 0;
+}
 
 .stat-info {
   flex: 1;
