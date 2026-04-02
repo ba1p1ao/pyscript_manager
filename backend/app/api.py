@@ -432,31 +432,28 @@ async def start_script(script_name: str):
         )
     else:
         # cron/interval 类型：添加到调度器
-        if not enabled:
-            message = f"定时任务 {script_name} 未被启用"
+
+        # 先启用脚本
+        with get_db_context() as db:
+            db_config = db.query(ScriptConfig).filter(
+                ScriptConfig.name == script_name
+            ).first()
+            if db_config:
+                db_config.enabled = True
+                db.commit()
+    
+        success = scheduler_service.add_job(
+            script_name=script_name,
+            schedule_type=schedule_type,
+            schedule=schedule,
+            interval_seconds=interval_seconds
+        )
+    
+        if success:
+            message = f"定时任务 {script_name} 已启动"
             pid = None
         else:
-            # 先启用脚本
-            with get_db_context() as db:
-                db_config = db.query(ScriptConfig).filter(
-                    ScriptConfig.name == script_name
-                ).first()
-                if db_config:
-                    db_config.enabled = True
-                    db.commit()
-        
-            success = scheduler_service.add_job(
-                script_name=script_name,
-                schedule_type=schedule_type,
-                schedule=schedule,
-                interval_seconds=interval_seconds
-            )
-        
-            if success:
-                message = f"定时任务 {script_name} 已启动"
-                pid = None
-            else:
-                raise HTTPException(status_code=400, detail="启动调度任务失败")
+            raise HTTPException(status_code=400, detail="启动调度任务失败")
     
     return {
         "success": True,

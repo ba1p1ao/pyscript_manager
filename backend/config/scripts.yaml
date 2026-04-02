@@ -24,7 +24,7 @@ scripts:
   interval_seconds: 10
   max_retries: 2
   name: health_check
-  retry_delay: 60
+  retry_delay: 3
   schedule_type: interval
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/health_check.py
   timeout: 3
