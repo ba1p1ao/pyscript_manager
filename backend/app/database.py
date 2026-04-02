@@ -8,7 +8,7 @@ from typing import Generator
 import os
 
 from app.models import Base
-
+from app.logger import get_logger
 # 数据库文件路径
 DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
 os.makedirs(DATABASE_DIR, exist_ok=True)
@@ -29,7 +29,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def init_db():
     """初始化数据库，创建所有表"""
     Base.metadata.create_all(bind=engine)
-    print(f"数据库初始化完成: {DATABASE_URL}")
+    logger = get_logger("database")
+    logger.info(f"数据库初始化完成: {DATABASE_URL}")
 
 
 def get_db() -> Generator[Session, None, None]:

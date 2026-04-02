@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from app.database import get_db_context
 from app.models import ScriptConfig
-
+from app.logger import get_logger
 @dataclass
 class ScriptConfigData:
     """脚本配置数据类"""
@@ -44,10 +44,11 @@ class ConfigManager:
             config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
             os.makedirs(config_dir, exist_ok=True)
             config_file = os.path.join(config_dir, 'scripts.yaml')
-        
+        self.logger = get_logger("config_manager")
         self.config_file = config_file
         self.configs: Dict[str, ScriptConfigData] = {}
         self._load_config()
+  
 
     def _load_config(self):
         """加载配置文件"""
@@ -75,10 +76,10 @@ class ConfigManager:
                         auto_start=item.get('auto_start', False),
                     )
                     self.configs[config.name] = config
-                
-                print(f"已加载 {len(self.configs)} 个脚本配置")
+                    
+                self.logger.info(f"已加载 {len(self.configs)} 个脚本配置")
             except Exception as e:
-                print(f"加载配置文件失败: {e}")
+                self.logger.error(f"加载配置文件失败: {e}")
                 self._create_default_config()
         else:
             self._create_default_config()
