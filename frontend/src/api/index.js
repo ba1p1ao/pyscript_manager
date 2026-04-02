@@ -57,4 +57,16 @@ export const scheduledApi = {
   list: () => api.get('/scheduled')
 }
 
+// 日志管理 API
+export const logManagementApi = {
+  // 获取日志统计
+  getStats: () => api.get('/logs/stats'),
+  // 获取日志配置
+  getConfig: () => api.get('/logs/config'),
+  // 更新日志配置
+  updateConfig: (data) => api.put('/logs/config', data),
+  // 手动清理日志
+  clean: (params) => api.post('/logs/clean', null, { params })
+}
+
 export default api

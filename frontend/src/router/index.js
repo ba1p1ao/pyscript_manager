@@ -33,9 +33,15 @@ const routes = [
   },
   {
     path: '/logs',
-    name: 'Logs',
+    name: 'LogManagement',
+    component: () => import('@/views/LogManagement.vue'),
+    meta: { title: '日志管理', icon: 'Delete' }
+  },
+  {
+    path: '/system-logs',
+    name: 'SystemLogs',
     component: () => import('@/views/SystemLogs.vue'),
-    meta: { title: '系统日志', icon: 'Tickets' }
+    meta: { title: '操作日志', icon: 'Tickets' }
   }
 ]
 

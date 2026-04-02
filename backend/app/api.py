@@ -12,6 +12,8 @@ from app.models import ScriptConfig, ScriptHistory, SystemLog
 from app.config_manager import config_manager, ScriptConfigData
 from app.process_manager import process_manager
 from app.scheduler_service import scheduler_service
+from app.log_cleaner import log_cleaner
+from app.logger import LogConfig
 
 router = APIRouter()
 
@@ -741,3 +743,147 @@ async def list_scheduled_tasks():
             "data": result,
             "count": len(result)
         }
+
+
+# ============== 日志管理 API ==============
+
+class LogConfigUpdate(BaseModel):
+    """日志配置更新"""
+    script_retention_days: Optional[int] = None
+    history_retention_count: Optional[int] = None
+    system_log_retention_days: Optional[int] = None
+    archive_after_days: Optional[int] = None
+    archive_retention_days: Optional[int] = None
+
+
+@router.get("/api/logs/stats")
+async def get_log_stats():
+    """
+    获取日志统计信息
+    
+    返回各类日志文件的大小、数量等信息。
+    """
+    stats = log_cleaner.get_log_stats()
+    
+    return {
+        "success": True,
+        "data": stats
+    }
+
+
+@router.post("/api/logs/clean")
+async def clean_logs(
+    clean_scripts: bool = Query(True, description="是否清理脚本日志"),
+    clean_history: bool = Query(True, description="是否清理历史记录"),
+    clean_system_logs: bool = Query(True, description="是否清理系统日志"),
+    archive: bool = Query(True, description="是否归档旧日志")
+):
+    """
+    手动触发日志清理
+    
+    - **clean_scripts**: 是否清理脚本日志文件
+    - **clean_history**: 是否清理数据库历史记录
+    - **clean_system_logs**: 是否清理系统日志
+    - **archive**: 是否归档旧日志
+    """
+    results = {
+        'script_logs_deleted': 0,
+        'script_logs_freed_mb': 0,
+        'archives_created': 0,
+        'archives_deleted': 0,
+        'history_deleted': 0,
+        'system_logs_deleted': 0,
+    }
+    
+    try:
+        # 1. 归档旧日志
+        if archive:
+            results['archives_created'] = log_cleaner.archive_old_logs()
+            results['archives_deleted'] = log_cleaner.clean_old_archives()
+        
+        # 2. 清理过期日志
+        if clean_scripts:
+            deleted, freed = log_cleaner.clean_script_logs()
+            results['script_logs_deleted'] = deleted
+            results['script_logs_freed_mb'] = freed
+        
+        # 3. 清理数据库历史
+        if clean_history:
+            results['history_deleted'] = log_cleaner.clean_database_history()
+        
+        # 4. 清理系统日志
+        if clean_system_logs:
+            results['system_logs_deleted'] = log_cleaner.clean_system_logs()
+        
+        return {
+            "success": True,
+            "message": "日志清理完成",
+            "results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"日志清理失败: {str(e)}")
+
+
+@router.get("/api/logs/config")
+async def get_log_config():
+    """
+    获取日志配置
+    """
+    return {
+        "success": True,
+        "data": {
+            "script_retention_days": LogConfig.SCRIPT_RETENTION_DAYS,
+            "script_max_files": LogConfig.SCRIPT_MAX_FILES_PER_SCRIPT,
+            "history_retention_count": LogConfig.HISTORY_RETENTION_COUNT,
+            "system_log_retention_days": LogConfig.SYSTEM_LOG_RETENTION_DAYS,
+            "archive_after_days": LogConfig.ARCHIVE_AFTER_DAYS,
+            "archive_retention_days": LogConfig.ARCHIVE_RETENTION_DAYS,
+            "app_max_bytes": LogConfig.APP_MAX_BYTES,
+            "app_backup_count": LogConfig.APP_BACKUP_COUNT,
+            "log_dirs": {
+                "app": str(LogConfig.APP_LOG_DIR),
+                "scripts": str(LogConfig.SCRIPT_LOG_DIR),
+                "archive": str(LogConfig.ARCHIVE_DIR),
+            }
+        }
+    }
+
+
+@router.put("/api/logs/config")
+async def update_log_config(config: LogConfigUpdate):
+    """
+    更新日志配置
+    
+    注意：更新配置后，下次清理任务将使用新配置。
+    配置不会持久化，重启后恢复默认值。
+    """
+    if config.script_retention_days is not None:
+        if config.script_retention_days < 1:
+            raise HTTPException(status_code=400, detail="保留天数不能小于 1")
+        LogConfig.SCRIPT_RETENTION_DAYS = config.script_retention_days
+    
+    if config.history_retention_count is not None:
+        if config.history_retention_count < 10:
+            raise HTTPException(status_code=400, detail="历史记录保留数不能小于 10")
+        LogConfig.HISTORY_RETENTION_COUNT = config.history_retention_count
+    
+    if config.system_log_retention_days is not None:
+        if config.system_log_retention_days < 1:
+            raise HTTPException(status_code=400, detail="系统日志保留天数不能小于 1")
+        LogConfig.SYSTEM_LOG_RETENTION_DAYS = config.system_log_retention_days
+    
+    if config.archive_after_days is not None:
+        if config.archive_after_days < 1:
+            raise HTTPException(status_code=400, detail="归档天数不能小于 1")
+        LogConfig.ARCHIVE_AFTER_DAYS = config.archive_after_days
+    
+    if config.archive_retention_days is not None:
+        if config.archive_retention_days < 1:
+            raise HTTPException(status_code=400, detail="归档保留天数不能小于 1")
+        LogConfig.ARCHIVE_RETENTION_DAYS = config.archive_retention_days
+    
+    return {
+        "success": True,
+        "message": "日志配置已更新"
+    }

@@ -1,5 +1,5 @@
 scripts:
-- auto_start: true
+- auto_start: false
   description: 这是一个示例脚本配置
   enabled: true
   max_retries: 3

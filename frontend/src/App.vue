@@ -91,8 +91,12 @@
               <span>系统管理</span>
             </template>
             <el-menu-item index="/logs">
+              <el-icon><Delete /></el-icon>
+              <span>日志管理</span>
+            </el-menu-item>
+            <el-menu-item index="/system-logs">
               <el-icon><Tickets /></el-icon>
-              <span>系统日志</span>
+              <span>操作日志</span>
             </el-menu-item>
           </el-sub-menu>
         </el-menu>

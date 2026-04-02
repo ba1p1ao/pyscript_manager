@@ -14,30 +14,45 @@ from app.api import router
 from app.scheduler_service import scheduler_service
 from app.process_manager import process_manager
 from app.config_manager import config_manager
+from app.logger import init_logging, get_logger
+from app.log_cleaner import schedule_log_cleanup
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    # 初始化日志系统
+    init_logging()
+    logger = get_logger('main')
+    
     # 启动时初始化
     init_db()
+    logger.info("数据库初始化完成")
+    
     # 同步 yaml 与 数据库 的脚本配置信息
     config_manager.sync_config()
+    logger.info("配置文件同步完成")
+    
     # 启动所有自启动的非定时任务
     process_manager.auto_start_scripts()
+    
     # 启动调度服务（加载所有自启动 cron/interval 定时任务）
     scheduler_service.start()
     
-    print("=" * 50)
-    print("Python 脚本管理器已启动")
-    print("访问地址: http://localhost:8900")
-    print("API 文档: http://localhost:8900/docs")
-    print("=" * 50)
+    # 注册日志清理定时任务（每天凌晨 3 点执行）
+    schedule_log_cleanup(scheduler_service)
+    
+    logger.info("=" * 50)
+    logger.info("Python 脚本管理器已启动")
+    logger.info("访问地址: http://localhost:8900")
+    logger.info("API 文档: http://localhost:8900/docs")
+    logger.info("=" * 50)
     
     yield
     
     # 关闭时清理
     scheduler_service.shutdown()
-    print("应用正在关闭...")
+    logger.info("应用正在关闭...")
 
 
 # 创建 FastAPI 应用
