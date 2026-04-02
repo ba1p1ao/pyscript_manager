@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 import json
+import time
 import aiofiles
 
 from app.config_manager import ScriptConfigData, config_manager
@@ -276,7 +277,7 @@ class ProcessManager:
                     db.commit()
             
             # 启动监控线程
-            self._start_monitor_thread(script_name, process, history_id)
+            self._start_monitor_thread(script_name, process, history_id, timeout)
             
             # 记录日志
             self._log_action('start_script', script_name, 
@@ -472,53 +473,54 @@ class ProcessManager:
         except Exception as e:
             self.logger.error(f"异步日志写入异常: {e}")
 
-    def _start_monitor_thread(self, script_name: str, process: subprocess.Popen, history_id: int):
+    def _start_monitor_thread(self, script_name: str, process: subprocess.Popen, history_id: int, timeout: int = 3600):
         """启动进程监控线程"""
         def monitor():
+            # 创建超时时间
+            start_time = datetime.now()
             try:
-                # 等待进程结束
-                process.wait()
-                
+                while True:
+                    return_code = process.poll()
+                    if return_code is not None:
+                        # 进程已结束
+                        break
+                    
+                    end_time = datetime.now()
+                    elapsed = (end_time - start_time).total_seconds()
+
+                    if elapsed > timeout:
+                        # 超时终止
+                        self.logger.warning(f"脚本 {script_name} 运行超时 ({timeout}秒)，正在终止...")
+                        _, message = self.kill_process(process.pid)
+                        self.logger.warning(f"脚本 {script_name} {message}")
+
+                        self._update_history_status(
+                            history_id=history_id, 
+                            script_name=script_name,
+                            end_time=end_time,
+                            exit_code=None,
+                            duration=int(elapsed),
+                            status="timeout"
+                        )
+                        return
+
+                    time.sleep(1)
+            
+            
+                # 正常结束处理 
                 end_time = datetime.now()
                 exit_code = process.returncode
+                duration = int((end_time - start_time).total_seconds())
                 
-                # 更新历史记录
-                with get_db_context() as db:
-                    history = db.query(ScriptHistory).filter(
-                        ScriptHistory.id == history_id
-                    ).first()
-                    
-                    if history:
-                        history.end_time = end_time
-                        history.exit_code = exit_code
-                        history.duration = int((end_time - history.start_time).total_seconds())
-                        history.status = 'completed' if exit_code == 0 else 'failed'
-                        
-                        # 读取错误信息
-                        if exit_code != 0 and history.log_file:
-                            try:
-                                with open(history.log_file, 'r', encoding='utf-8') as f:
-                                    content = f.read()
-                                    # 取最后 500 字符作为错误信息
-                                    history.error_message = content[-500:] if len(content) > 500 else content
-                            except:
-                                pass
-                        
-                        db.commit()
+                self._update_history_status(
+                    history_id=history_id,
+                    script_name=script_name,
+                    end_time=end_time,
+                    exit_code=exit_code,
+                    duration=duration,
+                    status='completed' if exit_code == 0 else 'failed'
+                )
                 
-                # 更新配置状态
-                with get_db_context() as db:
-                    config = db.query(ScriptConfig).filter(
-                        ScriptConfig.name == script_name
-                    ).first()
-                    if config:
-                        config.current_pid = None
-                        config.status = 'stopped'
-                        db.commit()
-                
-                # 清理运行记录
-                if script_name in self.running_processes:
-                    del self.running_processes[script_name]
                 
             except Exception as e:
                 self.logger.error(f"监控线程异常: {e}")
@@ -526,6 +528,50 @@ class ProcessManager:
         thread = threading.Thread(target=monitor, daemon=True)
         thread.start()
 
+    
+    def _update_history_status(
+        self, history_id: int, end_time, script_name: str, exit_code: int, duration: int, status: str
+    ):
+        """更新历史记录"""
+        
+        # 更新历史记录
+        with get_db_context() as db:
+            history = db.query(ScriptHistory).filter(
+                ScriptHistory.id == history_id
+            ).first()
+            
+            if history:
+                history.end_time = end_time
+                history.exit_code = exit_code
+                history.duration = duration
+                history.status = status
+                
+                # 读取错误信息
+                if exit_code != 0 and history.log_file:
+                    try:
+                        with open(history.log_file, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            # 取最后 500 字符作为错误信息
+                            history.error_message = content[-500:] if len(content) > 500 else content
+                    except:
+                        pass
+                
+                db.commit()
+        
+        # 更新配置状态
+        with get_db_context() as db:
+            config = db.query(ScriptConfig).filter(
+                ScriptConfig.name == script_name
+            ).first()
+            if config:
+                config.current_pid = None
+                config.status = 'stopped'
+                db.commit()
+        
+        # 清理运行记录
+        if script_name in self.running_processes:
+            del self.running_processes[script_name]
+    
     def _log_action(self, action: str, target: str, message: str, level: str = 'INFO'):
         """记录系统日志"""
         try:

@@ -719,7 +719,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   color: #606266;
-  font-size: 13px;
+  font-size: 18px;
 }
 
 .status-tag {

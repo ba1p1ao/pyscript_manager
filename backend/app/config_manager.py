@@ -117,7 +117,7 @@ class ConfigManager:
         with open(self.config_file, 'w', encoding='utf-8') as f:
             yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
         
-        print(f"配置已保存: {self.config_file}")
+        self.logger.info(f"配置已保存: {self.config_file}")
 
     def get_all_configs(self) -> Dict[str, ScriptConfigData]:
         """获取所有配置"""

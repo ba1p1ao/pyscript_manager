@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 def main():
     logger.info("脚本启动...")
     
-    logger.info("模拟检测")
-    time.sleep(5)
-    logger.info("检测成功")
+    logger.info("模拟超时")
+    time.sleep(10)
+    logger.info("为实现超时检测")
 
 
 if __name__ == '__main__':

@@ -1,13 +1,13 @@
 scripts:
 - auto_start: false
   description: 这是一个示例脚本配置
-  enabled: true
+  enabled: false
   max_retries: 3
   name: example_script
   retry_delay: 60
   schedule_type: manual
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply.py
-  timeout: 3600
+  timeout: 3
 - auto_start: false
   description: 每一分钟执行一次
   enabled: false
@@ -20,11 +20,11 @@ scripts:
   timeout: 7200
 - auto_start: true
   description: 每5分钟执行健康检查
-  enabled: true
-  interval_seconds: 300
-  max_retries: 3
+  enabled: false
+  interval_seconds: 10
+  max_retries: 2
   name: health_check
   retry_delay: 60
   schedule_type: interval
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/health_check.py
-  timeout: 300
+  timeout: 3
