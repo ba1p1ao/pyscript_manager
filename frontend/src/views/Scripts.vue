@@ -123,9 +123,9 @@
             >
               <el-icon><VideoPause /></el-icon> 停止
             </el-button>
-            <!-- cron/interval 类型：根据 enabled 状态显示 -->
+            <!-- cron/interval 类型：根据 auto_start 状态显示 -->
             <el-button 
-              v-else-if="row.schedule_type !== 'manual' && !row.enabled"
+              v-else-if="row.schedule_type !== 'manual'  && (!row.enabled || !row.auto_start)"
               type="success" 
               size="small"
               @click="startScript(row.name)"
@@ -133,7 +133,7 @@
               <el-icon><VideoPlay /></el-icon> 启动
             </el-button>
             <el-button 
-              v-else-if="row.schedule_type !== 'manual' && row.enabled"
+              v-else-if="row.schedule_type !== 'manual' && (row.enabled || row.auto_start)"
               type="warning" 
               size="small"
               @click="stopScript(row.name)"
