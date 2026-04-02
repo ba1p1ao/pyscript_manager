@@ -9,7 +9,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-
+from app.database import get_db_context
+from app.models import ScriptConfig
 
 @dataclass
 class ScriptConfigData:
@@ -191,6 +192,61 @@ class ConfigManager:
         
         return errors
 
+    def sync_config(self):
+        """
+        将 yaml 文件的配置信息同步到数据库中
+        注意：不在此处处理调度任务，由 scheduler_service.start() 统一处理
+        """
+        self.reload_config()
+    
+        # 同步到数据库
+        yaml_configs = self.configs
 
+        with get_db_context() as db:
+            # 获取数据库中的所有配置
+            db_configs = db.query(ScriptConfig).all()
+            db_names = {c.name: c for c in db_configs}
+            
+            for name, yaml_config in yaml_configs.items():
+                # 添加新配置
+                if not db_names.get(name):
+                    new_config = ScriptConfig(
+                        name=yaml_config.name,
+                        script_path=yaml_config.script_path,
+                        description=yaml_config.description,
+                        schedule=yaml_config.schedule,
+                        schedule_type=yaml_config.schedule_type,
+                        interval_seconds=yaml_config.interval_seconds,
+                        max_retries=yaml_config.max_retries,
+                        retry_delay=yaml_config.retry_delay,
+                        timeout=yaml_config.timeout,
+                        working_dir=yaml_config.working_dir,
+                        env_vars=str(yaml_config.env_vars) if yaml_config.env_vars else None,
+                        python_path=yaml_config.python_path,
+                        enabled=yaml_config.enabled,
+                        auto_start=yaml_config.auto_start,
+                        status='stopped'
+                    )
+                    db.add(new_config)
+                else:
+                    # 修改老配置
+                    old_config = db_names[name]
+                    for key, value in yaml_config.to_dict().items():
+                        if key == "name":
+                            continue
+                        elif key == 'env_vars' and value:
+                            setattr(old_config, key, str(value))
+                        elif hasattr(old_config, key):
+                            setattr(old_config, key, value)
+                            
+            # 删除数据库中有但是yaml文件中没有的配置            
+            for db_config in db_configs:
+                if not yaml_configs.get(db_config.name):
+                    db.delete(db_config)
+                    
+            db.commit()
+            
+        return yaml_configs
+    
 # 全局配置管理器实例
 config_manager = ConfigManager()

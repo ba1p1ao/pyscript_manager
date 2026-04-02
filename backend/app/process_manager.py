@@ -191,11 +191,13 @@ class ProcessManager:
             results[pid] = self.kill_process(pid)
         return results
 
-    def start_script(self, script_path: str, script_name: str, 
-                     working_dir: str = None, env_vars: Dict = None,
-                     python_path: str = None, timeout: int = 3600) -> Tuple[bool, str, Optional[int]]:
+    def _start_script_internal(self, script_path: str, script_name: str, 
+                               working_dir: str = None, env_vars: Dict = None,
+                               python_path: str = None, timeout: int = 3600,
+                               schedule_type: str = 'manual') -> Tuple[bool, str, Optional[int]]:
         """
-        启动脚本
+        内部方法：启动脚本的核心逻辑
+        :param schedule_type: 调度类型 (manual/cron/interval)
         :return: (是否成功, 消息, 进程ID)
         """
         # 检查脚本是否存在
@@ -243,7 +245,8 @@ class ProcessManager:
                 'process': process,
                 'log_file': log_file,
                 'start_time': datetime.now(),
-                'timeout': timeout
+                'timeout': timeout,
+                'schedule_type': schedule_type
             }
             
             # 创建历史记录
@@ -274,13 +277,72 @@ class ProcessManager:
             self._start_monitor_thread(script_name, process, history_id)
             
             # 记录日志
-            self._log_action('start_script', script_name, f'启动脚本，PID: {process.pid}')
+            self._log_action('start_script', script_name, 
+                           f'启动脚本 [{schedule_type}]，PID: {process.pid}')
             
             return True, f"脚本 {script_name} 已启动，PID: {process.pid}", process.pid
             
         except Exception as e:
             return False, f"启动脚本失败: {str(e)}", None
 
+    def auto_start_scripts(self):
+        """
+        启动自启动的脚本
+        """
+        with get_db_context() as db:
+            scripts = db.query(ScriptConfig).filter(
+                ScriptConfig.schedule_type == "manual",
+                ScriptConfig.enabled  == True,
+                ScriptConfig.auto_start == True
+            ).all()
+            for script in scripts:
+                env_vars = eval(script.env_vars) if script.env_vars else None
+                self.start_manual_script(
+                    script_name=script.name,
+                    script_path=script.script_path,
+                    working_dir=script.working_dir,
+                    env_vars=env_vars,
+                    python_path=script.python_path,
+                    timeout=script.timeout
+                )
+                
+            print(f"[Process] 已加载 {len(scripts)} 个自启动的非定时任务")
+
+
+    def start_manual_script(self, script_path: str, script_name: str, 
+                            working_dir: str = None, env_vars: Dict = None,
+                            python_path: str = None, timeout: int = 3600) -> Tuple[bool, str, Optional[int]]:
+        """
+        手动启动脚本
+        """
+        return self._start_script_internal(
+            script_path=script_path,
+            script_name=script_name,
+            working_dir=working_dir,
+            env_vars=env_vars,
+            python_path=python_path,
+            timeout=timeout,
+            schedule_type='manual'
+        )
+    
+    def start_scheduled_script(self, script_path: str, script_name: str,
+                               working_dir: str = None, env_vars: Dict = None,
+                               python_path: str = None, timeout: int = 3600,
+                               schedule_type: str = 'cron') -> Tuple[bool, str, Optional[int]]:
+        """
+        定时任务启动脚本（由调度器调用）
+        :param schedule_type: 'cron' 或 'interval'
+        """
+        return self._start_script_internal(
+            script_path=script_path,
+            script_name=script_name,
+            working_dir=working_dir,
+            env_vars=env_vars,
+            python_path=python_path,
+            timeout=timeout,
+            schedule_type=schedule_type
+        )
+    
     def stop_script(self, script_name: str) -> Tuple[bool, str]:
         """停止由本系统启动的脚本"""
         print(self.running_processes)

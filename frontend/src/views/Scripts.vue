@@ -80,11 +80,26 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="schedule" label="调度配置" min-width="140">
+          <template #default="{ row }">
+            <span v-if="row.schedule_type === 'cron'">{{ row.schedule }}</span>
+            <span v-else-if="row.schedule_type === 'interval'">每 {{ row.interval_seconds }} 秒</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="next_run_time" label="下次执行" width="160">
+          <template #default="{ row }">
+            <span v-if="row.schedule_type !== 'manual' && row.enabled">
+              {{ formatTime(row.next_run_time) }}
+            </span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="max_retries" label="重试次数" width="100" />
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ row.status }}
+            <el-tag :type="getDisplayStatusType(row)" size="small">
+              {{ getDisplayStatus(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -95,8 +110,9 @@
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
+            <!-- manual 类型：根据运行状态显示 -->
             <el-button 
-              v-if="row.status !== 'running'"
+              v-if="row.schedule_type === 'manual' && row.status !== 'running'"
               type="success" 
               size="small"
               @click="startScript(row.name)"
@@ -104,7 +120,24 @@
               <el-icon><VideoPlay /></el-icon> 启动
             </el-button>
             <el-button 
-              v-else
+              v-else-if="row.schedule_type === 'manual' && row.status === 'running'"
+              type="warning" 
+              size="small"
+              @click="stopScript(row.name)"
+            >
+              <el-icon><VideoPause /></el-icon> 停止
+            </el-button>
+            <!-- cron/interval 类型：根据 enabled 状态显示 -->
+            <el-button 
+              v-else-if="row.schedule_type !== 'manual' && !row.enabled"
+              type="success" 
+              size="small"
+              @click="startScript(row.name)"
+            >
+              <el-icon><VideoPlay /></el-icon> 启动
+            </el-button>
+            <el-button 
+              v-else-if="row.schedule_type !== 'manual' && row.enabled"
               type="warning" 
               size="small"
               @click="stopScript(row.name)"
@@ -154,20 +187,35 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="调度类型">
-              <el-select v-model="form.schedule_type" style="width: 100%">
-                <el-option label="手动" value="manual" />
-                <el-option label="Cron 表达式" value="cron" />
+              <el-select v-model="form.schedule_type" style="width: 100%" @change="onScheduleTypeChange">
+                <el-option label="手动运行" value="manual" />
+                <el-option label="Cron 定时" value="cron" />
                 <el-option label="间隔运行" value="interval" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item :label="scheduleLabel">
+            <!-- Cron 表达式输入 -->
+            <el-form-item v-if="form.schedule_type === 'cron'" label="Cron 表达式">
               <el-input 
                 v-model="form.schedule" 
-                :disabled="form.schedule_type === 'manual'"
-                :placeholder="schedulePlaceholder"
+                placeholder="* * * * * (分 时 日 月 周)"
               />
+              <div class="form-hint">例: 0 8 * * * 表示每天 8:00 执行</div>
+            </el-form-item>
+            <!-- 间隔秒数输入 -->
+            <el-form-item v-else-if="form.schedule_type === 'interval'" label="间隔秒数">
+              <el-input-number 
+                v-model="form.interval_seconds" 
+                :min="1" 
+                :max="86400"
+                style="width: 100%"
+              />
+              <div class="form-hint">每隔多少秒执行一次</div>
+            </el-form-item>
+            <!-- 手动运行提示 -->
+            <el-form-item v-else label="调度配置">
+              <span class="text-muted">手动运行需要通过界面或 API 触发</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -255,6 +303,7 @@ const form = ref({
   description: '',
   schedule_type: 'manual',
   schedule: '',
+  interval_seconds: 300,
   max_retries: 3,
   retry_delay: 60,
   timeout: 3600,
@@ -269,24 +318,6 @@ const rules = {
   script_path: [{ required: true, message: '请输入脚本路径', trigger: 'blur' }]
 }
 
-const scheduleLabel = computed(() => {
-  const labels = {
-    cron: 'Cron 表达式',
-    interval: '间隔秒数',
-    manual: '调度配置'
-  }
-  return labels[form.value.schedule_type] || '调度配置'
-})
-
-const schedulePlaceholder = computed(() => {
-  const placeholders = {
-    cron: '*/5 * * * *',
-    interval: '300',
-    manual: ''
-  }
-  return placeholders[form.value.schedule_type] || ''
-})
-
 const formatTime = (time) => {
   return time ? dayjs(time).format('YYYY-MM-DD HH:mm:ss') : '-'
 }
@@ -299,6 +330,24 @@ const getScheduleTypeColor = (type) => {
 const getStatusType = (status) => {
   const types = { running: 'success', completed: 'primary', failed: 'danger', stopped: 'info' }
   return types[status] || 'info'
+}
+
+// 获取显示状态：cron/interval 类型根据 enabled 显示 scheduled/stopped
+const getDisplayStatus = (row) => {
+  if (row.schedule_type === 'manual') {
+    return row.status
+  }
+  // cron/interval 类型
+  return row.enabled ? 'scheduled' : 'stopped'
+}
+
+// 获取显示状态颜色
+const getDisplayStatusType = (row) => {
+  if (row.schedule_type === 'manual') {
+    return getStatusType(row.status)
+  }
+  // cron/interval 类型
+  return row.enabled ? 'success' : 'info'
 }
 
 const loadScripts = async () => {
@@ -329,6 +378,20 @@ const handleSearch = () => {
   // 搜索逻辑已通过 computed 属性处理
 }
 
+const onScheduleTypeChange = () => {
+  // 切换调度类型时重置相关字段
+  if (form.value.schedule_type === 'cron') {
+    form.value.schedule = ''
+    form.value.interval_seconds = null
+  } else if (form.value.schedule_type === 'interval') {
+    form.value.schedule = null
+    form.value.interval_seconds = form.value.interval_seconds || 300
+  } else {
+    form.value.schedule = null
+    form.value.interval_seconds = null
+  }
+}
+
 const openAddDialog = () => {
   isEditing.value = false
   form.value = {
@@ -337,6 +400,7 @@ const openAddDialog = () => {
     description: '',
     schedule_type: 'manual',
     schedule: '',
+    interval_seconds: 300,
     max_retries: 3,
     retry_delay: 60,
     timeout: 3600,
@@ -350,7 +414,10 @@ const openAddDialog = () => {
 
 const openEditDialog = (script) => {
   isEditing.value = true
-  form.value = { ...script }
+  form.value = { 
+    ...script,
+    interval_seconds: script.interval_seconds || 300
+  }
   dialogVisible.value = true
 }
 
@@ -358,11 +425,22 @@ const saveScript = async () => {
   try {
     await formRef.value.validate()
     
+    // 准备提交数据，根据调度类型过滤字段
+    const submitData = { ...form.value }
+    if (submitData.schedule_type === 'manual') {
+      submitData.schedule = null
+      submitData.interval_seconds = null
+    } else if (submitData.schedule_type === 'cron') {
+      submitData.interval_seconds = null
+    } else if (submitData.schedule_type === 'interval') {
+      submitData.schedule = null
+    }
+    
     if (isEditing.value) {
-      await scriptApi.update(form.value.name, form.value)
+      await scriptApi.update(form.value.name, submitData)
       ElMessage.success('脚本更新成功')
     } else {
-      await scriptApi.create(form.value)
+      await scriptApi.create(submitData)
       ElMessage.success('脚本添加成功')
     }
     
@@ -510,5 +588,15 @@ onMounted(() => {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 13px;
   color: #606266;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.text-muted {
+  color: #909399;
 }
 </style>

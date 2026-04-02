@@ -11,6 +11,7 @@ from app.database import get_db_context
 from app.models import ScriptConfig, ScriptHistory, SystemLog
 from app.config_manager import config_manager, ScriptConfigData
 from app.process_manager import process_manager
+from app.scheduler_service import scheduler_service
 
 router = APIRouter()
 
@@ -209,6 +210,7 @@ async def create_script_config(config: ScriptConfigCreate):
     创建新的脚本配置
     
     添加配置到 YAML 文件并同步到数据库。
+    如果是 cron 或 interval 类型，自动添加调度任务。
     """
     # 验证配置
     config_data = ScriptConfigData(**config.model_dump())
@@ -243,6 +245,15 @@ async def create_script_config(config: ScriptConfigCreate):
         db.add(db_config)
         db.commit()
     
+    # 如果是 cron 或 interval 类型且已启用，添加调度任务
+    if config.enabled and config.schedule_type in ['cron', 'interval']:
+        scheduler_service.add_job(
+            script_name=config.name,
+            schedule_type=config.schedule_type,
+            schedule=config.schedule,
+            interval_seconds=config.interval_seconds
+        )
+    
     return {
         "success": True,
         "message": f"脚本配置 {config.name} 创建成功"
@@ -262,19 +273,40 @@ async def update_script_config(script_name: str, config: ScriptConfigUpdate):
     if not config_manager.update_config(script_name, **update_data):
         raise HTTPException(status_code=404, detail="脚本配置不存在")
     
-    # 同步到数据库
+    # 同步到数据库并处理调度任务
     with get_db_context() as db:
         db_config = db.query(ScriptConfig).filter(
             ScriptConfig.name == script_name
         ).first()
         
         if db_config:
+            old_schedule_type = db_config.schedule_type
+            old_enabled = db_config.enabled
+            
             for key, value in update_data.items():
                 if key == 'env_vars' and value:
                     setattr(db_config, key, str(value))
                 elif hasattr(db_config, key):
                     setattr(db_config, key, value)
             db.commit()
+            
+            # 处理调度任务变更
+            new_schedule_type = update_data.get('schedule_type', old_schedule_type)
+            new_enabled = update_data.get('enabled', old_enabled)
+            
+            # 如果调度类型或启用状态改变，需要重新管理调度任务
+            if 'schedule_type' in update_data or 'enabled' in update_data or 'schedule' in update_data or 'interval_seconds' in update_data:
+                # 先移除旧的调度任务
+                scheduler_service.remove_job(script_name)
+                
+                # 如果是 cron 或 interval 且已启用，添加新的调度任务
+                if new_enabled and new_schedule_type in ['cron', 'interval']:
+                    scheduler_service.add_job(
+                        script_name=script_name,
+                        schedule_type=new_schedule_type,
+                        schedule=db_config.schedule,
+                        interval_seconds=db_config.interval_seconds
+                    )
     
     return {
         "success": True,
@@ -291,6 +323,9 @@ async def delete_script_config(script_name: str):
     """
     if not config_manager.remove_config(script_name):
         raise HTTPException(status_code=404, detail="脚本配置不存在")
+    
+    # 移除调度任务（如果存在）
+    scheduler_service.remove_job(script_name)
     
     # 同步到数据库
     with get_db_context() as db:
@@ -313,55 +348,13 @@ async def reload_script_configs():
     """
     重新加载 YAML 配置文件
     
-    从磁盘重新读取配置文件并同步到数据库。
+    从磁盘重新读取配置文件并同步到数据库，同时重新加载调度任务。
     """
-    config_manager.reload_config()
     
-    # 同步到数据库
-    yaml_configs = config_manager.get_all_configs()
-
-    with get_db_context() as db:
-        # 获取数据库中的所有配置
-        db_configs = db.query(ScriptConfig).all()
-        db_names = {c.name: c for c in db_configs}
-        
-        # 添加新配置
-        for name, yaml_config in yaml_configs.items():
-            if not db_names.get(name):
-                new_config = ScriptConfig(
-                    name=yaml_config.name,
-                    script_path=yaml_config.script_path,
-                    description=yaml_config.description,
-                    schedule=yaml_config.schedule,
-                    schedule_type=yaml_config.schedule_type,
-                    interval_seconds=yaml_config.interval_seconds,
-                    max_retries=yaml_config.max_retries,
-                    retry_delay=yaml_config.retry_delay,
-                    timeout=yaml_config.timeout,
-                    working_dir=yaml_config.working_dir,
-                    env_vars=str(yaml_config.env_vars) if yaml_config.env_vars else None,
-                    python_path=yaml_config.python_path,
-                    enabled=yaml_config.enabled,
-                    auto_start=yaml_config.auto_start,
-                    status='stopped'
-                )
-                db.add(new_config)
-            else:
-                # print(yaml_config)
-                old_config = db_names[name]
-                for key, value in yaml_config.to_dict().items():
-                    if key == "name":
-                        continue
-                    elif key == 'env_vars' and value:
-                        setattr(old_config, key, str(value))
-                    elif hasattr(old_config, key):
-                        setattr(old_config, key, value)
-                        
-        for db_config in db_configs:
-            if not yaml_configs.get(db_config.name):
-                db.delete(db_config)
-                 
-        db.commit()
+    yaml_configs = config_manager.sync_config()
+    
+    # 重新加载调度任务
+    scheduler_service.load_scheduled_scripts()
     
     return {
         "success": True,
@@ -375,6 +368,9 @@ async def reload_script_configs():
 async def start_script(script_name: str):
     """
     启动脚本
+    
+    - manual: 立即执行一次
+    - cron/interval: 添加到调度器，按计划执行
     
     - **script_name**: 脚本名称
     """
@@ -395,29 +391,61 @@ async def start_script(script_name: str):
             env_vars = yaml_config.env_vars
             python_path = yaml_config.python_path
             timeout = yaml_config.timeout
+            schedule_type = yaml_config.schedule_type
+            schedule = yaml_config.schedule
+            interval_seconds = yaml_config.interval_seconds
+            enabled = yaml_config.enabled
         else:
             script_path = config.script_path
             working_dir = config.working_dir
             env_vars = eval(config.env_vars) if config.env_vars else None
             python_path = config.python_path
             timeout = config.timeout
+            schedule_type = config.schedule_type
+            schedule = config.schedule
+            interval_seconds = config.interval_seconds
+            enabled = config.enabled
     
-    success, message, pid = process_manager.start_script(
-        script_path=script_path,
-        script_name=script_name,
-        working_dir=working_dir,
-        env_vars=env_vars,
-        python_path=python_path,
-        timeout=timeout
-    )
-    
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
+    if schedule_type == 'manual':
+        # manual 类型：立即执行一次
+        success, message, pid = process_manager.start_manual_script(
+            script_path=script_path,
+            script_name=script_name,
+            working_dir=working_dir,
+            env_vars=env_vars,
+            python_path=python_path,
+            timeout=timeout,
+        )
+    else:
+        # cron/interval 类型：添加到调度器
+        if not enabled:
+            # 先启用脚本
+            with get_db_context() as db:
+                db_config = db.query(ScriptConfig).filter(
+                    ScriptConfig.name == script_name
+                ).first()
+                if db_config:
+                    db_config.enabled = True
+                    db.commit()
+        
+        success = scheduler_service.add_job(
+            script_name=script_name,
+            schedule_type=schedule_type,
+            schedule=schedule,
+            interval_seconds=interval_seconds
+        )
+        
+        if success:
+            message = f"定时任务 {script_name} 已启动"
+            pid = None
+        else:
+            raise HTTPException(status_code=400, detail="启动调度任务失败")
     
     return {
         "success": True,
         "message": message,
-        "pid": pid
+        "pid": pid,
+        "schedule_type": schedule_type
     }
 
 
@@ -426,15 +454,39 @@ async def stop_script(script_name: str):
     """
     停止脚本
     
+    - manual: 终止正在运行的进程
+    - cron/interval: 从调度器移除，停止定时任务
+    
     - **script_name**: 脚本名称
     """
-    success, message = process_manager.stop_script(script_name)
+    # 获取脚本类型
+    with get_db_context() as db:
+        config = db.query(ScriptConfig).filter(
+            ScriptConfig.name == script_name
+        ).first()
+        
+        if config:
+            schedule_type = config.schedule_type
+            # 更新为禁用状态
+            config.enabled = False
+            db.commit()
+        else:
+            yaml_config = config_manager.get_config(script_name)
+            schedule_type = yaml_config.schedule_type if yaml_config else 'manual'
     
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
+    if schedule_type == 'manual':
+        # manual 类型：终止进程
+        success, message = process_manager.stop_script(script_name)
+    else:
+        # cron/interval 类型：从调度器移除
+        success = scheduler_service.remove_job(script_name)
+        if success:
+            message = f"定时任务 {script_name} 已停止"
+        else:
+            message = f"停止定时任务失败"
     
     return {
-        "success": True,
+        "success": success,
         "message": message
     }
 

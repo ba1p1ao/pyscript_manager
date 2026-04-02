@@ -1,5 +1,5 @@
 scripts:
-- auto_start: false
+- auto_start: true
   description: 这是一个示例脚本配置
   enabled: true
   max_retries: 3
@@ -8,6 +8,7 @@ scripts:
   schedule_type: manual
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply.py
   timeout: 3600
+
 - auto_start: false
   description: 每一分钟执行一次
   enabled: true
@@ -18,3 +19,16 @@ scripts:
   schedule_type: cron
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply2.py
   timeout: 7200
+
+  # 示例 3: 间隔运行的脚本
+- name: health_check
+  script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/health_check.py
+  description: 每5分钟执行健康检查
+  schedule_type: interval
+  interval_seconds: 300     # 每300秒执行一次
+  max_retries: 3
+  retry_delay: 60
+  timeout: 300
+  enabled: true
+  auto_start: false          # 服务启动时自动开始运行
+

@@ -11,13 +11,22 @@ import os
 
 from app.database import init_db
 from app.api import router
-
+from app.scheduler_service import scheduler_service
+from app.process_manager import process_manager
+from app.config_manager import config_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化
     init_db()
+    # 同步 yaml 与 数据库 的脚本配置信息
+    config_manager.sync_config()
+    # 启动所有自启动的非定时任务
+    process_manager.auto_start_scripts()
+    # 启动调度服务（加载所有自启动 cron/interval 定时任务）
+    scheduler_service.start()
+    
     print("=" * 50)
     print("Python 脚本管理器已启动")
     print("访问地址: http://localhost:8900")
@@ -27,6 +36,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # 关闭时清理
+    scheduler_service.shutdown()
     print("应用正在关闭...")
 
 

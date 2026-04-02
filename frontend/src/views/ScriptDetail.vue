@@ -15,15 +15,31 @@
             <div class="card-header">
               <span>脚本信息</span>
               <div>
+                <!-- manual 类型：根据运行状态显示 -->
                 <el-button 
-                  v-if="script.status !== 'running'"
+                  v-if="script.schedule_type === 'manual' && script.status !== 'running'"
                   type="success" 
                   @click="startScript"
                 >
                   <el-icon><VideoPlay /></el-icon> 启动
                 </el-button>
                 <el-button 
-                  v-else
+                  v-else-if="script.schedule_type === 'manual' && script.status === 'running'"
+                  type="warning" 
+                  @click="stopScript"
+                >
+                  <el-icon><VideoPause /></el-icon> 停止
+                </el-button>
+                <!-- cron/interval 类型：根据 enabled 状态显示 -->
+                <el-button 
+                  v-else-if="script.schedule_type !== 'manual' && !script.enabled"
+                  type="success" 
+                  @click="startScript"
+                >
+                  <el-icon><VideoPlay /></el-icon> 启动
+                </el-button>
+                <el-button 
+                  v-else-if="script.schedule_type !== 'manual' && script.enabled"
                   type="warning" 
                   @click="stopScript"
                 >
@@ -38,10 +54,23 @@
               <span class="mono">{{ script.script_path }}</span>
             </el-descriptions-item>
             <el-descriptions-item label="当前状态">
-              <el-tag :type="getStatusType(script.status)">{{ script.status }}</el-tag>
+              <el-tag :type="getDisplayStatusType(script)">
+                {{ getDisplayStatus(script) }}
+              </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="调度类型">{{ script.schedule_type }}</el-descriptions-item>
-            <el-descriptions-item label="调度配置">{{ script.schedule || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="调度类型">
+              <el-tag :type="getScheduleTypeColor(script.schedule_type)" size="small">
+                {{ script.schedule_type }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="调度配置">
+              <span v-if="script.schedule_type === 'cron'">{{ script.schedule }}</span>
+              <span v-else-if="script.schedule_type === 'interval'">每 {{ script.interval_seconds }} 秒</span>
+              <span v-else>-</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="下次执行" v-if="script.schedule_type !== 'manual'">
+              <span>{{ formatTime(script.next_run_time) }}</span>
+            </el-descriptions-item>
             <el-descriptions-item label="最大重试">{{ script.max_retries }}</el-descriptions-item>
             <el-descriptions-item label="超时时间">{{ script.timeout }} 秒</el-descriptions-item>
             <el-descriptions-item label="当前 PID">
@@ -167,6 +196,29 @@ const formatTimeShort = (time) => {
 const getStatusType = (status) => {
   const types = { running: 'success', completed: 'primary', failed: 'danger', stopped: 'info' }
   return types[status] || 'info'
+}
+
+const getScheduleTypeColor = (type) => {
+  const colors = { cron: 'primary', interval: 'warning', manual: 'info' }
+  return colors[type] || 'info'
+}
+
+// 获取显示状态：cron/interval 类型根据 enabled 显示 scheduled/stopped
+const getDisplayStatus = (row) => {
+  if (row.schedule_type === 'manual') {
+    return row.status
+  }
+  // cron/interval 类型
+  return row.enabled ? 'scheduled' : 'stopped'
+}
+
+// 获取显示状态颜色
+const getDisplayStatusType = (row) => {
+  if (row.schedule_type === 'manual') {
+    return getStatusType(row.status)
+  }
+  // cron/interval 类型
+  return row.enabled ? 'success' : 'info'
 }
 
 const loadScript = async () => {
@@ -298,4 +350,8 @@ onUnmounted(() => {
 .stat-value.success { color: #67c23a; }
 .stat-value.danger { color: #f56c6c; }
 .stat-value.primary { color: #409eff; }
+
+.text-muted {
+  color: #909399;
+}
 </style>
