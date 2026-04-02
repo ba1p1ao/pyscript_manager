@@ -401,6 +401,7 @@ async def start_script(script_name: str):
             schedule = yaml_config.schedule
             interval_seconds = yaml_config.interval_seconds
             enabled = yaml_config.enabled
+            auto_start = yaml_config.auto_start
         else:
             script_path = config.script_path
             working_dir = config.working_dir
@@ -411,6 +412,7 @@ async def start_script(script_name: str):
             schedule = config.schedule
             interval_seconds = config.interval_seconds
             enabled = config.enabled
+            auto_start = config.auto_start
     
     if schedule_type == 'manual':
         # manual 类型：立即执行一次
@@ -425,6 +427,9 @@ async def start_script(script_name: str):
     else:
         # cron/interval 类型：添加到调度器
         if not enabled:
+            message = f"定时任务 {script_name} 未被启用"
+            pid = None
+        else:
             # 先启用脚本
             with get_db_context() as db:
                 db_config = db.query(ScriptConfig).filter(
@@ -434,18 +439,18 @@ async def start_script(script_name: str):
                     db_config.enabled = True
                     db.commit()
         
-        success = scheduler_service.add_job(
-            script_name=script_name,
-            schedule_type=schedule_type,
-            schedule=schedule,
-            interval_seconds=interval_seconds
-        )
+            success = scheduler_service.add_job(
+                script_name=script_name,
+                schedule_type=schedule_type,
+                schedule=schedule,
+                interval_seconds=interval_seconds
+            )
         
-        if success:
-            message = f"定时任务 {script_name} 已启动"
-            pid = None
-        else:
-            raise HTTPException(status_code=400, detail="启动调度任务失败")
+            if success:
+                message = f"定时任务 {script_name} 已启动"
+                pid = None
+            else:
+                raise HTTPException(status_code=400, detail="启动调度任务失败")
     
     return {
         "success": True,

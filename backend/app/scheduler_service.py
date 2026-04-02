@@ -71,8 +71,9 @@ class SchedulerService:
     def load_scheduled_scripts(self):
         """从数据库加载所有定时任务（cron 和 interval）"""
         with get_db_context() as db:
-            # 查询所有启用的非 manual 类型的脚本
+            # 查询所有自启动的非 manual 类型的脚本
             scripts = db.query(ScriptConfig).filter(
+                ScriptConfig.auto_start == True,
                 ScriptConfig.enabled == True,
                 ScriptConfig.schedule_type.in_(['cron', 'interval'])
             ).all()
