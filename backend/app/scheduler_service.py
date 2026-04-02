@@ -270,6 +270,8 @@ class SchedulerService:
                 python_path = config.python_path
                 timeout = config.timeout
                 schedule_type = config.schedule_type
+                max_retries = config.max_retries
+                retry_delay = config.retry_delay
             
             # 调用进程管理器启动脚本
             success, message, pid = process_manager.start_scheduled_script(
@@ -279,7 +281,9 @@ class SchedulerService:
                 env_vars=env_vars,
                 python_path=python_path,
                 timeout=timeout,
-                schedule_type=schedule_type  # 或从配置获取
+                schedule_type=schedule_type,
+                max_retries=max_retries,
+                retry_delay=retry_delay
             )
             
             if success:

@@ -192,10 +192,13 @@ class ProcessManager:
             results[pid] = self.kill_process(pid)
         return results
 
-    def _start_script_internal(self, script_path: str, script_name: str, 
-                               working_dir: str = None, env_vars: Dict = None,
-                               python_path: str = None, timeout: int = 3600,
-                               schedule_type: str = 'manual') -> Tuple[bool, str, Optional[int]]:
+    def _start_script_internal(
+        self, script_path: str, script_name: str, 
+        working_dir: str = None, env_vars: Dict = None,
+        python_path: str = None, timeout: int = 3600,
+        schedule_type: str = 'manual',
+        max_retries: int = 3, retry_delay: int = 60, retry_count: int = 0
+    ) -> Tuple[bool, str, Optional[int]]:
         """
         内部方法：启动脚本的核心逻辑
         :param schedule_type: 调度类型 (manual/cron/interval)
@@ -277,7 +280,13 @@ class ProcessManager:
                     db.commit()
             
             # 启动监控线程
-            self._start_monitor_thread(script_name, process, history_id, timeout)
+            self._start_monitor_thread(
+                script_name=script_name, process=process, 
+                script_path=script_path, working_dir=working_dir, env_vars=env_vars,
+                python_path=python_path, schedule_type=schedule_type,
+                history_id=history_id, timeout=timeout, 
+                max_retries=max_retries, retry_delay=retry_delay, retry_count=retry_count
+            )
             
             # 记录日志
             self._log_action('start_script', script_name, 
@@ -306,15 +315,20 @@ class ProcessManager:
                     working_dir=script.working_dir,
                     env_vars=env_vars,
                     python_path=script.python_path,
-                    timeout=script.timeout
+                    timeout=script.timeout,
+                    max_retries=script.max_retries,
+                    retry_delay=script.retry_delay
                 )
                 
             self.logger.info(f"已加载 {len(scripts)} 个自启动的非定时任务")
 
 
-    def start_manual_script(self, script_path: str, script_name: str, 
-                            working_dir: str = None, env_vars: Dict = None,
-                            python_path: str = None, timeout: int = 3600) -> Tuple[bool, str, Optional[int]]:
+    def start_manual_script(
+        self, script_path: str, script_name: str, 
+        working_dir: str = None, env_vars: Dict = None,
+        python_path: str = None, timeout: int = 3600,
+        max_retries: int = 3, retry_delay: int = 60, retry_count: int = 0
+    ) -> Tuple[bool, str, Optional[int]]:
         """
         手动启动脚本
         """
@@ -325,13 +339,19 @@ class ProcessManager:
             env_vars=env_vars,
             python_path=python_path,
             timeout=timeout,
-            schedule_type='manual'
+            schedule_type='manual',
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            retry_count=retry_count
         )
     
-    def start_scheduled_script(self, script_path: str, script_name: str,
-                               working_dir: str = None, env_vars: Dict = None,
-                               python_path: str = None, timeout: int = 3600,
-                               schedule_type: str = 'cron') -> Tuple[bool, str, Optional[int]]:
+    def start_scheduled_script(
+        self, script_path: str, script_name: str,
+        working_dir: str = None, env_vars: Dict = None,
+        python_path: str = None, timeout: int = 3600,
+        schedule_type: str = 'cron',
+        max_retries: int = 3, retry_delay: int = 60, retry_count: int = 0
+    ) -> Tuple[bool, str, Optional[int]]:
         """
         定时任务启动脚本（由调度器调用）
         :param schedule_type: 'cron' 或 'interval'
@@ -343,7 +363,10 @@ class ProcessManager:
             env_vars=env_vars,
             python_path=python_path,
             timeout=timeout,
-            schedule_type=schedule_type
+            schedule_type=schedule_type,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+            retry_count=retry_count
         )
     
     def stop_script(self, script_name: str) -> Tuple[bool, str]:
@@ -473,7 +496,13 @@ class ProcessManager:
         except Exception as e:
             self.logger.error(f"异步日志写入异常: {e}")
 
-    def _start_monitor_thread(self, script_name: str, process: subprocess.Popen, history_id: int, timeout: int = 3600):
+    def _start_monitor_thread(
+        self, script_name: str, process: subprocess.Popen, 
+        script_path: str, working_dir: str = None, env_vars: Dict = None,
+        python_path: str = None, schedule_type: str = 'manual',
+        history_id: int = None, timeout: int = 3600,
+        max_retries: int = 3, retry_delay: int = 60, retry_count: int = 0
+    ):
         """启动进程监控线程"""
         def monitor():
             # 创建超时时间
@@ -494,13 +523,26 @@ class ProcessManager:
                         _, message = self.kill_process(process.pid)
                         self.logger.warning(f"脚本 {script_name} {message}")
 
+                        if retry_count < max_retries:
+                            self.logger.info(f"脚本 {script_name} 将在 {retry_delay} 秒后重试 ({retry_count + 1}/{max_retries})")
+                            time.sleep(retry_delay)
+
+                            self._start_script_internal(
+                                script_path=script_path, script_name=script_name,
+                                working_dir=working_dir, env_vars=env_vars,
+                                python_path=python_path, timeout=timeout,
+                                schedule_type=schedule_type,
+                                max_retries=max_retries, retry_delay=retry_delay, retry_count=retry_count + 1
+                            )
+                        
                         self._update_history_status(
                             history_id=history_id, 
                             script_name=script_name,
                             end_time=end_time,
                             exit_code=None,
                             duration=int(elapsed),
-                            status="timeout"
+                            status="timeout",
+                            retry_count=retry_count
                         )
                         return
 
@@ -530,7 +572,9 @@ class ProcessManager:
 
     
     def _update_history_status(
-        self, history_id: int, end_time, script_name: str, exit_code: int, duration: int, status: str
+        self, history_id: int, end_time, script_name: str, 
+        exit_code: int, duration: int, 
+        status: str, retry_count: int = 0,
     ):
         """更新历史记录"""
         
@@ -545,7 +589,7 @@ class ProcessManager:
                 history.exit_code = exit_code
                 history.duration = duration
                 history.status = status
-                
+                history.retry_count = retry_count
                 # 读取错误信息
                 if exit_code != 0 and history.log_file:
                     try:

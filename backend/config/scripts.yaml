@@ -4,7 +4,7 @@ scripts:
   enabled: false
   max_retries: 3
   name: example_script
-  retry_delay: 60
+  retry_delay: 3
   schedule_type: manual
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply.py
   timeout: 3

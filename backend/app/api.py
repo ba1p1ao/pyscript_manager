@@ -402,6 +402,8 @@ async def start_script(script_name: str):
             interval_seconds = yaml_config.interval_seconds
             enabled = yaml_config.enabled
             auto_start = yaml_config.auto_start
+            max_retries = yaml_config.max_retries
+            retry_delay = yaml_config.retry_delay
         else:
             script_path = config.script_path
             working_dir = config.working_dir
@@ -413,6 +415,8 @@ async def start_script(script_name: str):
             interval_seconds = config.interval_seconds
             enabled = config.enabled
             auto_start = config.auto_start
+            max_retries = config.max_retries
+            retry_delay = config.retry_delay
     
     if schedule_type == 'manual':
         # manual 类型：立即执行一次
@@ -423,6 +427,8 @@ async def start_script(script_name: str):
             env_vars=env_vars,
             python_path=python_path,
             timeout=timeout,
+            max_retries=max_retries,
+            retry_delay=retry_delay
         )
     else:
         # cron/interval 类型：添加到调度器
