@@ -122,6 +122,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8900,
         reload=True,
-        reload_excludes=["logs/*", "data/*"],  # 排除日志和数据目录
+        reload_excludes=["logs/**", "data/**", "*.log", "*.db"],  # 排除日志和数据目录
         log_level="info"
     )
