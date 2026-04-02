@@ -13,6 +13,7 @@ from apscheduler.jobstores.base import JobLookupError
 from app.database import get_db_context
 from app.models import ScriptConfig
 from app.process_manager import process_manager
+from app.logger import get_logger
 
 
 class SchedulerService:
@@ -22,13 +23,14 @@ class SchedulerService:
         # 创建异步调度器（适合 FastAPI）
         self.scheduler = AsyncIOScheduler()
         self._started = False
+        self.logger = get_logger('scheduler')
     
     def start(self):
         """启动调度器"""
         if not self._started:
             self.scheduler.start()
             self._started = True
-            print("[Scheduler] 调度器已启动")
+            self.logger.info("调度器已启动")
             
             # 先清理无效的调度任务（数据库中不存在的）
             self._cleanup_invalid_jobs()
@@ -41,7 +43,7 @@ class SchedulerService:
         if self._started:
             self.scheduler.shutdown(wait=wait)
             self._started = False
-            print("[Scheduler] 调度器已关闭")
+            self.logger.info("调度器已关闭")
     
     def _cleanup_invalid_jobs(self):
         """清理无效的调度任务（数据库中已被删除的脚本）"""
@@ -61,10 +63,10 @@ class SchedulerService:
                 if script_name not in valid_names:
                     self.remove_job(script_name)
                     removed_count += 1
-                    print(f"[Scheduler] 清理无效任务: {script_name}")
+                    self.logger.info(f"清理无效任务: {script_name}")
         
         if removed_count > 0:
-            print(f"[Scheduler] 共清理 {removed_count} 个无效任务")
+            self.logger.info(f"共清理 {removed_count} 个无效任务")
     
     def load_scheduled_scripts(self):
         """从数据库加载所有定时任务（cron 和 interval）"""
@@ -83,7 +85,7 @@ class SchedulerService:
                     interval_seconds=script.interval_seconds
                 )
                 
-            print(f"[Scheduler] 已加载 {len(scripts)} 个定时任务")
+            self.logger.info(f"已加载 {len(scripts)} 个定时任务")
     
     def add_job(self, script_name: str, schedule_type: str, 
                 schedule: Optional[str] = None, 
@@ -103,14 +105,14 @@ class SchedulerService:
             
             if schedule_type == 'cron':
                 if not schedule:
-                    print(f"[Scheduler] Cron 任务 {script_name} 缺少 cron 表达式")
+                    self.logger.warning(f"Cron 任务 {script_name} 缺少 cron 表达式")
                     return False
                 
                 # 解析 cron 表达式
                 # 支持格式: "分 时 日 月 周" 或 "hour=8, minute=0"
                 trigger = self._parse_cron_expression(schedule)
                 if not trigger:
-                    print(f"[Scheduler] Cron 表达式解析失败: {schedule}")
+                    self.logger.error(f"Cron 表达式解析失败: {schedule}")
                     return False
                 
                 self.scheduler.add_job(
@@ -127,12 +129,12 @@ class SchedulerService:
                 # 更新下次执行时间
                 self._update_next_run_time(script_name)
                 
-                print(f"[Scheduler] 已添加 Cron 任务: {script_name} ({schedule})")
+                self.logger.info(f"已添加 Cron 任务: {script_name} ({schedule})")
                 return True
                 
             elif schedule_type == 'interval':
                 if not interval_seconds or interval_seconds <= 0:
-                    print(f"[Scheduler] Interval 任务 {script_name} 缺少有效的间隔时间")
+                    self.logger.warning(f"Interval 任务 {script_name} 缺少有效的间隔时间")
                     return False
                 
                 self.scheduler.add_job(
@@ -149,15 +151,15 @@ class SchedulerService:
                 # 更新下次执行时间
                 self._update_next_run_time(script_name)
                 
-                print(f"[Scheduler] 已添加 Interval 任务: {script_name} (每 {interval_seconds} 秒)")
+                self.logger.info(f"已添加 Interval 任务: {script_name} (每 {interval_seconds} 秒)")
                 return True
                 
             else:
-                print(f"[Scheduler] 不支持的调度类型: {schedule_type}")
+                self.logger.warning(f"不支持的调度类型: {schedule_type}")
                 return False
                 
         except Exception as e:
-            print(f"[Scheduler] 添加任务失败: {e}")
+            self.logger.error(f"添加任务失败: {e}")
             return False
     
     def remove_job(self, script_name: str) -> bool:
@@ -165,13 +167,13 @@ class SchedulerService:
         try:
             job_id = f"script_{script_name}"
             self.scheduler.remove_job(job_id)
-            print(f"[Scheduler] 已移除任务: {script_name}")
+            self.logger.info(f"已移除任务: {script_name}")
             return True
         except JobLookupError:
             # 任务不存在，忽略
             return True
         except Exception as e:
-            print(f"[Scheduler] 移除任务失败: {e}")
+            self.logger.error(f"移除任务失败: {e}")
             return False
     
     def pause_job(self, script_name: str) -> bool:
@@ -179,13 +181,13 @@ class SchedulerService:
         try:
             job_id = f"script_{script_name}"
             self.scheduler.pause_job(job_id)
-            print(f"[Scheduler] 已暂停任务: {script_name}")
+            self.logger.info(f"已暂停任务: {script_name}")
             return True
         except JobLookupError:
-            print(f"[Scheduler] 任务不存在: {script_name}")
+            self.logger.warning(f"任务不存在: {script_name}")
             return False
         except Exception as e:
-            print(f"[Scheduler] 暂停任务失败: {e}")
+            self.logger.error(f"暂停任务失败: {e}")
             return False
     
     def resume_job(self, script_name: str) -> bool:
@@ -193,13 +195,13 @@ class SchedulerService:
         try:
             job_id = f"script_{script_name}"
             self.scheduler.resume_job(job_id)
-            print(f"[Scheduler] 已恢复任务: {script_name}")
+            self.logger.info(f"已恢复任务: {script_name}")
             return True
         except JobLookupError:
-            print(f"[Scheduler] 任务不存在: {script_name}")
+            self.logger.warning(f"任务不存在: {script_name}")
             return False
         except Exception as e:
-            print(f"[Scheduler] 恢复任务失败: {e}")
+            self.logger.error(f"恢复任务失败: {e}")
             return False
     
     def get_job_info(self, script_name: str) -> Optional[Dict]:
@@ -217,7 +219,7 @@ class SchedulerService:
                 }
             return None
         except Exception as e:
-            print(f"[Scheduler] 获取任务信息失败: {e}")
+            self.logger.error(f"获取任务信息失败: {e}")
             return None
     
     def get_all_jobs(self) -> List[Dict]:
@@ -237,7 +239,7 @@ class SchedulerService:
         执行脚本（由调度器调用）
         注意：这是异步方法，会在调度器的事件循环中执行
         """
-        print(f"[Scheduler] 触发执行: {script_name} at {datetime.now()}")
+        self.logger.info(f"触发执行: {script_name} at {datetime.now()}")
         
         try:
             # 获取脚本配置
@@ -247,17 +249,17 @@ class SchedulerService:
                 ).first()
                 
                 if not config:
-                    print(f"[Scheduler] 脚本配置不存在: {script_name}")
+                    self.logger.warning(f"脚本配置不存在: {script_name}")
                     return
                 
                 # 检查是否启用
                 if not config.enabled:
-                    print(f"[Scheduler] 脚本已禁用，跳过执行: {script_name}")
+                    self.logger.info(f"脚本已禁用，跳过执行: {script_name}")
                     return
                 
                 # 检查是否已在运行（防止重复执行）
                 if config.status == 'running':
-                    print(f"[Scheduler] 脚本正在运行，跳过执行: {script_name}")
+                    self.logger.info(f"脚本正在运行，跳过执行: {script_name}")
                     return
                 
                 # 获取配置参数
@@ -279,15 +281,15 @@ class SchedulerService:
             )
             
             if success:
-                print(f"[Scheduler] 脚本启动成功: {script_name}, PID: {pid}")
+                self.logger.info(f"脚本启动成功: {script_name}, PID: {pid}")
             else:
-                print(f"[Scheduler] 脚本启动失败: {script_name}, {message}")
+                self.logger.error(f"脚本启动失败: {script_name}, {message}")
                 
             # 更新下次执行时间
             self._update_next_run_time(script_name)
             
         except Exception as e:
-            print(f"[Scheduler] 执行脚本异常: {e}")
+            self.logger.error(f"执行脚本异常: {e}")
     
     def _parse_cron_expression(self, schedule: str) -> Optional[CronTrigger]:
         """
@@ -318,11 +320,11 @@ class SchedulerService:
                     day_of_week=day_of_week
                 )
             
-            print(f"[Scheduler] 无效的 Cron 表达式格式: {schedule}")
+            self.logger.warning(f"无效的 Cron 表达式格式: {schedule}")
             return None
             
         except Exception as e:
-            print(f"[Scheduler] 解析 Cron 表达式异常: {e}")
+            self.logger.error(f"解析 Cron 表达式异常: {e}")
             return None
     
     def _update_next_run_time(self, script_name: str):
@@ -344,7 +346,7 @@ class SchedulerService:
                         config.next_run_time = next_run.replace(tzinfo=None)
                         db.commit()
         except Exception as e:
-            print(f"[Scheduler] 更新下次执行时间失败: {e}")
+            self.logger.error(f"更新下次执行时间失败: {e}")
 
 
 # 全局调度服务实例
