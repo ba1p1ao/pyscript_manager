@@ -18,6 +18,7 @@ import aiofiles
 from app.config_manager import ScriptConfigData, config_manager
 from app.database import get_db_context
 from app.models import ScriptConfig, ScriptHistory, SystemLog
+from app.logger import LogConfig, get_logger, get_script_log_path
 
 
 class ProcessInfo:
@@ -53,8 +54,7 @@ class ProcessManager:
 
     def __init__(self):
         self.self_pid = os.getpid()
-        self.log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
-        os.makedirs(self.log_dir, exist_ok=True)
+        self.logger = get_logger('process_manager')
 
     def get_python_processes(self) -> List[ProcessInfo]:
         """获取所有正在运行的 Python 进程"""
@@ -223,8 +223,10 @@ class ProcessManager:
         
         # 准备日志文件
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_filename = f"{script_name}_{timestamp}.log"
-        log_file = os.path.join(self.log_dir, log_filename)
+        log_filename = f"{timestamp}.log"
+        script_log_dir = LogConfig.SCRIPT_LOG_DIR / script_name
+        script_log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = str(script_log_dir / log_filename)
         
         try:
             # 启动进程（使用 PIPE 捕获输出，以便异步写入日志）
@@ -306,7 +308,7 @@ class ProcessManager:
                     timeout=script.timeout
                 )
                 
-            print(f"[Process] 已加载 {len(scripts)} 个自启动的非定时任务")
+            self.logger.info(f"已加载 {len(scripts)} 个自启动的非定时任务")
 
 
     def start_manual_script(self, script_path: str, script_name: str, 
@@ -345,7 +347,6 @@ class ProcessManager:
     
     def stop_script(self, script_name: str) -> Tuple[bool, str]:
         """停止由本系统启动的脚本"""
-        print(self.running_processes)
         if script_name not in self.running_processes:
             return False, f"脚本 {script_name} 未在运行中"
         
@@ -469,7 +470,7 @@ class ProcessManager:
                     await f.flush()
                     
         except Exception as e:
-            print(f"异步日志写入异常: {e}")
+            self.logger.error(f"异步日志写入异常: {e}")
 
     def _start_monitor_thread(self, script_name: str, process: subprocess.Popen, history_id: int):
         """启动进程监控线程"""
@@ -520,7 +521,7 @@ class ProcessManager:
                     del self.running_processes[script_name]
                 
             except Exception as e:
-                print(f"监控线程异常: {e}")
+                self.logger.error(f"监控线程异常: {e}")
         
         thread = threading.Thread(target=monitor, daemon=True)
         thread.start()
@@ -539,10 +540,8 @@ class ProcessManager:
                 db.add(log)
                 db.commit()
         except Exception as e:
-            print(f"记录日志失败: {e}")
+            self.logger.error(f"记录日志失败: {e}")
 
 
 # 全局进程管理器实例
 process_manager = ProcessManager()
-if __name__ == "__main__":
-    print(process_manager.get_python_processes())
