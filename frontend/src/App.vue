@@ -375,17 +375,36 @@ watch(
 let timer = null
 let statsTimer = null
 
+// 智能刷新：页面可见时刷新
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    // 页面可见时，立即刷新并启动定时器
+    loadStats()
+    statsTimer = setInterval(loadStats, 70000)
+  } else {
+    // 页面隐藏时，停止定时器
+    if (statsTimer) {
+      clearInterval(statsTimer)
+      statsTimer = null
+    }
+  }
+}
+
 onMounted(() => {
   updateTime()
   timer = setInterval(updateTime, 1000)
   
   loadStats()
   statsTimer = setInterval(loadStats, 70000)
+  
+  // 监听页面可见性变化
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (statsTimer) clearInterval(statsTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

@@ -192,10 +192,23 @@ const loadData = async () => {
   }
 }
 
+// 智能刷新：页面可见时刷新
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    loadData()
+    refreshTimer = setInterval(loadData, 70000)
+  } else {
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
+    }
+  }
+}
+
 onMounted(() => {
   loadData()
-  // 定时刷新
   refreshTimer = setInterval(loadData, 70000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 // 当组件被 keep-alive 缓存后重新激活时，刷新数据
@@ -205,6 +218,7 @@ onActivated(() => {
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

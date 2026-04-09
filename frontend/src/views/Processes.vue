@@ -276,13 +276,28 @@ const loadAll = () => {
   loadScheduledTasks()
 }
 
+// 智能刷新：页面可见时刷新
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    loadAll()
+    refreshTimer = setInterval(loadAll, 60000)
+  } else {
+    if (refreshTimer) {
+      clearInterval(refreshTimer)
+      refreshTimer = null
+    }
+  }
+}
+
 onMounted(() => {
   loadAll()
   refreshTimer = setInterval(loadAll, 60000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

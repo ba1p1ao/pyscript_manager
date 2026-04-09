@@ -523,6 +523,7 @@ class ProcessManager:
                         _, message = self.kill_process(process.pid)
                         self.logger.warning(f"脚本 {script_name} {message}")
 
+                        # 超时重试
                         if retry_count < max_retries:
                             self.logger.info(f"脚本 {script_name} 将在 {retry_delay} 秒后重试 ({retry_count + 1}/{max_retries})")
                             time.sleep(retry_delay)
@@ -560,7 +561,7 @@ class ProcessManager:
                     end_time=end_time,
                     exit_code=exit_code,
                     duration=duration,
-                    status='completed' if exit_code == 0 else 'failed'
+                    status='completed' if exit_code == 0 else 'failed',
                 )
                 
                 
