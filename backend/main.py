@@ -2,13 +2,12 @@
 Python 脚本管理器 - 主入口
 基于 FastAPI 的后台管理系统
 """
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-import os
-
 from app.database import init_db
 from app.api import router
 from app.scheduler_service import scheduler_service
@@ -16,7 +15,9 @@ from app.process_manager import process_manager
 from app.config_manager import config_manager
 from app.logger import init_logging, get_logger
 from app.log_cleaner import schedule_log_cleanup
+from dotenv import load_dotenv
 
+load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -97,7 +98,6 @@ app.add_middleware(
 
 # 注册 API 路由
 app.include_router(router)
-
 # 前端静态文件目录
 frontend_dist = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
 

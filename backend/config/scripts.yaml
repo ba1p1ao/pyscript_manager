@@ -18,7 +18,7 @@ scripts:
   schedule_type: cron
   script_path: /home/csy/Desktop/xuexi/fastapi_demo/pyscript_mananger/backend/scripts/examply2.py
   timeout: 7200
-- auto_start: true
+- auto_start: false
   description: 每5分钟执行健康检查
   enabled: false
   interval_seconds: 10
